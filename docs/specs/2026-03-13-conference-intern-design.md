@@ -38,20 +38,26 @@ conference-intern/
 
 ## Dependencies
 
+**SKILL.md frontmatter** (follows OpenClaw SKILL.md convention):
+
 ```yaml
+---
+name: conference-intern
+description: Discover, curate, and register for crypto conference side events via Luma and Google Sheets
 metadata:
   openclaw:
     emoji: "🎪"
     requires:
       bins: ["jq"]
+      capabilities: ["browser"]
     optional:
       bins: ["gog"]
-      capabilities: ["browser"]
+---
 ```
 
 - **jq** — required for JSON manipulation in scripts
-- **gog** — optional, used for Google Sheets access (more efficient than browser)
 - **browser capability** — required for Luma scraping and RSVP; skill does not dictate which browser tool (agent-browser, Playwright MCP, or other)
+- **gog** — optional, used for Google Sheets access (more efficient than browser)
 
 ## Pipeline
 
@@ -109,7 +115,7 @@ Interactive setup where the agent walks the user through configuration:
 3. Luma sends 2FA code to user's email
 4. Agent prompts user to paste the code
 5. Agent enters code, completes login
-6. Session cookies exported and saved to `~/.openclaw/agents/<agent-id>/agent/secrets/luma-session.json`
+6. Session cookies exported and saved to `conferences/{conference-id}/luma-session.json` (kept local to the conference, gitignored)
 7. On subsequent runs, cookies loaded before navigating Luma
 
 ### Stage 2: Discover
@@ -120,7 +126,8 @@ Fetches events from all configured sources and normalizes into a common schema.
 
 **Google Sheets path:**
 1. Try `gog sheets get` with the sheet URL — parse output into events
-2. If `gog` unavailable or fails (e.g., public link without auth): fall back to browser — open sheet, read content
+2. If `gog` unavailable or fails (e.g., public link without auth): try the sheet's "publish to web" CSV export URL (`/pub?output=csv`) via curl
+3. If neither works: fall back to browser — open sheet, read content (note: Sheets UI is complex; this is a last resort)
 
 **Luma path:**
 1. Agent browser navigates to each URL in `luma_urls`
@@ -148,7 +155,7 @@ Fetches events from all configured sources and normalizes into a common schema.
 ]
 ```
 
-Deduplication by name+date hash across sources.
+Deduplication by SHA-256 hash of `name+date+time` (truncated to 12 chars) across sources.
 
 ### Stage 3: Curate
 
@@ -229,22 +236,26 @@ Re-runs Discover + Curate, diffs against existing `events.json`:
 - New events flagged with `is_new: true`
 - Removed events noted
 - Updated `curated.md` highlights new additions
-- Can be triggered on-demand or via cron (user's choice from setup)
+- Can be triggered on-demand or via scheduled monitoring
+- **Scheduled monitoring:** If `monitoring.mode` is `scheduled` or `both`, the setup script creates an OpenClaw cron job via `openclaw cron edit --message "Run conference-intern monitor <conference-id>"` with the configured interval. The agent's heartbeat cycle picks this up and executes `monitor.sh`.
+- Keeps `events-previous.json` as a snapshot for diffing; `is_new` is computed by comparing current vs previous run
 
 ## Agent Interaction
 
 ### Commands
 
-The skill is agent-agnostic. Any agent with browser access can run it. `CLAUDE.md` documents these commands:
+The skill is agent-agnostic. Any agent with browser access can run it. Commands are shell scripts invoked via bash:
 
-| Command | Description |
-|---------|-------------|
-| `setup <conference-name>` | Interactive first-time configuration |
-| `discover <conference-id>` | Fetch events from all sources |
-| `curate <conference-id>` | Filter and rank events |
-| `register <conference-id>` | Auto-RSVP to selected events |
-| `monitor <conference-id>` | Discover + curate + flag new events |
-| `run <conference-id>` | Full pipeline: discover → curate → register |
+| Command | Invocation | Description |
+|---------|------------|-------------|
+| setup | `bash scripts/setup.sh <conference-name>` | Interactive first-time configuration |
+| discover | `bash scripts/discover.sh <conference-id>` | Fetch events from all sources |
+| curate | `bash scripts/curate.sh <conference-id>` | Filter and rank events |
+| register | `bash scripts/register.sh <conference-id>` | Auto-RSVP to selected events |
+| monitor | `bash scripts/monitor.sh <conference-id>` | Discover + curate + flag new events |
+| run | `bash scripts/discover.sh <id> && bash scripts/curate.sh <id> && bash scripts/register.sh <id>` | Full pipeline |
+
+`CLAUDE.md` documents these commands so the agent knows how to route user requests to the correct script.
 
 ### Prompt Templates
 
@@ -265,11 +276,65 @@ Example from `register-prompt.md`:
 6. Confirm registration was successful (look for confirmation message)
 ```
 
+## CLAUDE.md Structure
+
+`CLAUDE.md` is the primary file the agent reads when using this skill. It contains:
+
+1. **Skill overview** — one-paragraph description of what conference-intern does
+2. **Commands** — each command listed with usage, what script it runs, and expected behavior:
+   - Commands are invoked as shell scripts: `bash scripts/setup.sh <conference-name>`
+   - Each script sources the relevant prompt template and passes data to the LLM
+3. **File locations** — where config, events, and curated output live per conference
+4. **Browser instructions** — remind the agent to use natural language page interpretation, never hardcode selectors
+5. **Error handling rules** — what to do on failure (see Error Handling section)
+6. **Stop conditions** — when to pause and ask the user (custom fields, auth codes, zero events)
+
+## Error Handling
+
+Each stage has defined failure behaviors:
+
+**Discover:**
+- Luma page fails to load or is rate-limited → log error, skip that URL, continue with remaining sources. Notify user which sources failed.
+- Google Sheets: `gog` fails → try CSV export URL → try browser → if all fail, skip sheet and notify user.
+- Zero events found across all sources → stop pipeline, notify user ("No events found — check your URLs").
+
+**Curate:**
+- Zero events in `events.json` → skip curation, notify user.
+- All events filtered out by preferences → notify user, suggest loosening criteria.
+
+**Register:**
+- RSVP page fails to load → mark event as "failed" in `curated.md`, continue with next event.
+- CAPTCHA detected → mark event as "manual" with link, notify user.
+- Event full / registration closed → mark as "closed" in `curated.md`, continue.
+- Custom fields detected → mark as "needs-input" (existing flow).
+- Session expired mid-run → attempt re-auth if user is interactive, otherwise mark remaining events as "session-expired" and stop.
+
+**Monitor:**
+- Same as Discover errors. Additionally, if `events-previous.json` is missing (first run), treat all events as new.
+
+**`run` command short-circuiting:**
+- If discover returns zero events → skip curate and register, notify user.
+- If curate recommends zero events → skip register, notify user.
+
+## .gitignore
+
+The skill ships with a `.gitignore` to prevent user data from being committed:
+
+```
+conferences/*/config.json
+conferences/*/events.json
+conferences/*/events-previous.json
+conferences/*/curated.md
+conferences/*/luma-session.json
+```
+
+A `conferences/.gitkeep` is included so the directory structure is preserved in the repo.
+
 ## Credential Storage
 
 Follows OpenClaw conventions:
 
-- **Luma session cookies** → `~/.openclaw/agents/<agent-id>/agent/secrets/luma-session.json` (per-agent, standard agent secrets path)
+- **Luma session cookies** → `conferences/{conference-id}/luma-session.json` (per-conference, gitignored)
 - **User RSVP info** (name, email) → `config.json` per conference (not sensitive)
 - **gog CLI** → handles its own auth via system keyring
 - **No API keys needed** — all data access is via browser or gog
