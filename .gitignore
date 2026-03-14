@@ -1,0 +1,6 @@
+# User data — per-conference runtime files
+conferences/*/config.json
+conferences/*/events.json
+conferences/*/events-previous.json
+conferences/*/curated.md
+conferences/*/luma-session.json
