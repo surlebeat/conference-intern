@@ -24,33 +24,24 @@ Setup → Discover → Curate → Register
 4. **Register** — auto-RSVPs on Luma for recommended events via browser automation
 5. **Monitor** — re-runs discover + curate on a schedule, flags newly added events
 
-## Quick Start
+## Getting Started
 
-```bash
-# 1. Set up a new conference (interactive)
-bash scripts/setup.sh ethcc-2026
+Once the skill is installed in your OpenClaw agent, just talk to it. Here are some example prompts:
 
-# 2. Run the full pipeline
-bash scripts/discover.sh ethcc-2026
-bash scripts/curate.sh ethcc-2026
-bash scripts/register.sh ethcc-2026
+> **"Set me up for EthCC 2026"**
+> Kicks off the interactive setup — the agent will ask you for Luma URLs, Google Sheet links, your interests, and registration preferences.
 
-# Or chain them together
-bash scripts/discover.sh ethcc-2026 && bash scripts/curate.sh ethcc-2026 && bash scripts/register.sh ethcc-2026
+> **"Find side events for ethcc-2026"**
+> Discovers events from all your configured sources.
 
-# 3. Check for new events later
-bash scripts/monitor.sh ethcc-2026
-```
+> **"Curate my ethcc-2026 events"**
+> Scores and ranks discovered events based on your preferences, outputs a tiered schedule.
 
-## Commands
+> **"Register me for the recommended ethcc-2026 events"**
+> Auto-RSVPs on Luma for your curated picks via browser automation.
 
-| Command | Usage | What it does |
-|---------|-------|--------------|
-| **setup** | `bash scripts/setup.sh <name>` | Interactive config — preferences, source URLs, auth |
-| **discover** | `bash scripts/discover.sh <id>` | Fetch events from Luma + Google Sheets → `events.json` |
-| **curate** | `bash scripts/curate.sh <id>` | LLM-driven scoring and ranking → `curated.md` |
-| **register** | `bash scripts/register.sh <id>` | Auto-RSVP on Luma for recommended events |
-| **monitor** | `bash scripts/monitor.sh <id>` | Re-discover + re-curate, flag new events |
+> **"Check for new ethcc-2026 events"**
+> Re-runs discovery and curation, flags anything new since last time.
 
 ## What You Get
 
@@ -150,6 +141,10 @@ Community-curated spreadsheets (commonly shared on Telegram/Twitter before confe
 - **Agent-agnostic** — works with any agent that has browser access
 - **Re-runnable** — every pipeline stage is idempotent
 - **User in control** — never guesses answers for custom fields; always defers to you
+
+## Contributing
+
+Pull requests are welcome! If you have ideas for new event sources, better curation heuristics, or support for additional conference platforms, feel free to open a PR.
 
 ## License
 
