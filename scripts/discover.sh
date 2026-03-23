@@ -70,7 +70,16 @@ if [ -n "$LUMA_URLS" ]; then
   for luma_url in $LUMA_URLS; do
     log_info "Luma page: $luma_url"
     echo "BROWSE: Navigate to $luma_url"
-    echo "READ: Take a snapshot of the page. Extract all events listed:"
+    echo ""
+    echo "IMPORTANT — Luma uses infinite scroll. You MUST scroll to load ALL events:"
+    echo "  1. Take a snapshot and note how many events are visible"
+    echo "  2. Scroll to the bottom of the page"
+    echo "  3. Wait 1-2 seconds for new events to load"
+    echo "  4. Take another snapshot and check if new events appeared"
+    echo "  5. Repeat steps 2-4 until no new events load (same count as previous snapshot)"
+    echo "  6. Only then extract events from the fully-loaded page"
+    echo ""
+    echo "READ: Extract ALL events from the fully-loaded page:"
     echo "  - Event name"
     echo "  - Date and time"
     echo "  - Location/venue"
@@ -79,8 +88,6 @@ if [ -n "$LUMA_URLS" ]; then
     echo "  - RSVP URL (the link to register for this specific event)"
     echo "  - RSVP count (if visible)"
     echo "  - Source: luma"
-    echo ""
-    echo "If the page has pagination or 'load more', navigate through all pages."
     echo ""
   done
 fi
