@@ -66,4 +66,15 @@ Write a single JSON object to `{RESULT_FILE}`. Nothing else — no markdown, no 
 - `fields`: only populated for `needs-input` status. List the labels of required custom fields.
 - `message`: one sentence explaining what happened.
 
-**Do not write anything else after writing the result file. No summary, no follow-up questions. Just write the JSON and stop.**
+## Tab Cleanup
+
+After writing the result file, **close the browser tab** — unless the status is `captcha`. CAPTCHA tabs must stay open so the user can solve them manually.
+
+- `registered` → close tab
+- `needs-input` → close tab
+- `failed` → close tab
+- `closed` → close tab
+- `session-expired` → close tab
+- `captcha` → **keep tab open**
+
+**Do not write anything else after writing the result file. No summary, no follow-up questions. Just write the JSON, handle the tab, and stop.**
