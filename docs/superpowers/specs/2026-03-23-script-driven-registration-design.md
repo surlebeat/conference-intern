@@ -19,16 +19,17 @@ A shared `luma-knowledge.md` file at the skill root allows the agent to learn Lu
 ```
 register.sh (bash — loop controller)
   │
-  ├── Parse curated.md → list of events needing registration
+  ├── Parse curated.md + cross-reference events.json → list of events needing registration
+  │   (only lu.ma URLs — non-Luma events are skipped)
   │
-  ├── Pass 1: For each event
-  │     ├── openclaw agent --message (single-event prompt)
+  ├── Pass 1: For each event (with configurable delay between events)
+  │     ├── openclaw agent --message (single-event prompt, 120s timeout)
   │     │     ├── Reads luma-knowledge.md (hints)
   │     │     ├── Opens RSVP URL, identifies form
   │     │     ├── Registers OR marks needs-input
   │     │     ├── Updates luma-knowledge.md if page differs
-  │     │     └── Returns JSON to stdout
-  │     ├── Parse agent JSON output
+  │     │     └── Writes result JSON to temp file
+  │     ├── Read result JSON from temp file
   │     └── Update curated.md in-place
   │
   ├── Collect needs-input events, deduplicate custom field labels
@@ -36,8 +37,8 @@ register.sh (bash — loop controller)
   ├── Store answers in custom-answers.json
   │
   └── Pass 2: For each needs-input event
-        ├── openclaw agent --message (with custom answers)
-        ├── Parse output, update curated.md
+        ├── openclaw agent --message (with custom answers, 120s timeout)
+        ├── Read result JSON, update curated.md
         └── Done
 ```
 
@@ -49,25 +50,32 @@ register.sh (bash — loop controller)
 
 **New behavior:**
 
-1. Parse `curated.md` to extract events needing registration — those without a terminal status marker (`✅`, `🚫`, `❌`, `🔗`).
+1. Parse `curated.md` to extract events needing registration — those without a terminal status marker (see Status Markers table below). Cross-reference `events.json` by event name/date to look up RSVP URLs. Filter to only `lu.ma` URLs — non-Luma events are skipped (they should already be marked `🔗` by the curate step).
 2. Load user info from `config.json` (name, email).
 3. Check for existing `custom-answers.json` — if present, load previously-provided answers.
 4. **Pass 1:** For each event:
-   - Build a single-event message containing: user info, event details (name, date, URL), session file path, luma-knowledge.md path, and the single-event prompt template.
-   - Call `openclaw agent --message "<message>"`.
-   - Parse the agent's JSON response.
+   - Create a temp file for the agent's result: `RESULT_FILE=$(mktemp)`.
+   - Build a single-event message containing: user info, event details (name, date, URL), session file path, luma-knowledge.md path, result file path, and the single-event prompt template.
+   - Call `timeout 120 openclaw agent --message "<message>"`. If timeout fires, treat as `failed`.
+   - Read and parse JSON from the result file (not stdout — avoids agent log/thinking contamination).
    - Update `curated.md` with the event's new status.
    - If `needs-input`: accumulate custom field labels.
    - If `session-expired`: stop the loop, report remaining events.
+   - Sleep for a configurable delay (default 5 seconds) to avoid rate limiting.
 5. After pass 1: deduplicate custom field labels across all needs-input events.
 6. For each unique field not already in `custom-answers.json`, prompt the user.
 7. Save answers to `custom-answers.json`.
 8. **Pass 2:** For each needs-input event:
    - Build message including the relevant answers from `custom-answers.json`.
-   - Call `openclaw agent --message`.
-   - Parse response, update `curated.md`.
+   - Call `timeout 120 openclaw agent --message`.
+   - Read result JSON from temp file, update `curated.md`.
+   - If pass 2 also fails for an event, mark it `❌ Failed` (terminal).
 
-**Idempotency:** Re-running `register.sh` skips events already marked with terminal status. The `--retry-pending` flag limits processing to only `⏳ Needs input` events.
+**Idempotency:** Re-running `register.sh` skips events already marked with terminal status.
+
+**CLI flags:**
+- `--retry-pending` — skip pass 1, go straight to pass 2. Processes only events marked `⏳ Needs input`. Requires `custom-answers.json` to exist (prompts for missing answers if needed).
+- `--delay <seconds>` — override the default 5-second delay between events.
 
 ### 2. Single-Event Prompt (`templates/register-single-prompt.md`)
 
@@ -96,7 +104,7 @@ Focused instructions for one RSVP. The agent receives:
    - Required custom fields present AND answers provided → fill all, submit, confirm.
    - Required custom fields present, no answers → do NOT submit, return needs-input with field labels.
 8. If page structure differs from `luma-knowledge.md`, update the file.
-9. Return structured JSON to stdout:
+9. Write structured JSON to the result file path provided in the message (not stdout — keeps result clean from agent logs):
 
 ```json
 {
@@ -106,7 +114,7 @@ Focused instructions for one RSVP. The agent receives:
 }
 ```
 
-**Constraints:** The agent returns JSON and stops. No summarizing, no follow-up questions, no deciding what to do next.
+**Constraints:** The agent writes the JSON result file and stops. No summarizing, no follow-up questions, no deciding what to do next.
 
 ### 3. Luma Knowledge File (`luma-knowledge.md`)
 
@@ -148,8 +156,9 @@ Per-conference file storing the user's answers to custom required fields.
 ### 5. Helper Functions (`scripts/common.sh`)
 
 New functions:
-- `parse_registerable_events()` — reads `curated.md`, extracts events without terminal status markers. Returns a list of event name, date, and RSVP URL.
+- `parse_registerable_events()` — reads `curated.md`, extracts events without terminal status markers. Cross-references `events.json` to resolve RSVP URLs. Filters to only `lu.ma` domains. Returns a list of event name, date, and RSVP URL.
 - `update_event_status()` — takes an event identifier and new status string, updates the corresponding line in `curated.md` in-place.
+- `collect_unique_fields()` — takes the accumulated needs-input results, deduplicates field labels, returns the list of fields not yet in `custom-answers.json`.
 
 ## Files Changed
 
@@ -166,6 +175,18 @@ New functions:
 | File | Description |
 |------|-------------|
 | `conferences/{id}/custom-answers.json` | User answers to custom fields |
+
+## Status Markers
+
+| Marker | Meaning | Terminal? | Behavior on re-run |
+|--------|---------|-----------|-------------------|
+| `✅ Registered` | Successfully registered (by script or already registered) | Yes | Skipped |
+| `❌ Failed` | Registration failed (page error, pass 2 failure, timeout) | Yes | Skipped |
+| `🚫 Closed` | Event full or registration closed | Yes | Skipped |
+| `🔗 Register manually` | CAPTCHA or non-Luma event | Yes | Skipped |
+| `🔒 Session expired` | Luma session expired mid-run | No | Retried on next run |
+| `⏳ Needs input: [fields]` | Custom required fields need user answers | No | Processed by pass 2 or `--retry-pending` |
+| _(no marker)_ | Not yet attempted | No | Processed by pass 1 |
 
 ## Error Handling
 
@@ -193,4 +214,12 @@ New functions:
 - **Knowledge accumulates** — each registration makes the next one faster.
 - **Knowledge is hints, not truth** — agent always validates against the actual page.
 - **Idempotent** — safe to re-run at any point.
-- **Already-registered detection** — agent recognizes existing registrations and moves on without touching the form.
+- **Already-registered detection** — agent recognizes existing registrations (including manual registrations done outside this tool) and moves on without touching the form.
+- **Luma-only** — parser filters to `lu.ma` URLs only; non-Luma events should already be marked `🔗` by the curate step.
+- **Rate-limit aware** — configurable delay between events (default 5s) to avoid triggering Luma's bot detection.
+
+## Edge Cases
+
+- **Partial run interrupted (Ctrl+C, crash):** Events already processed have updated markers. The in-progress event may have been submitted on Luma but not yet marked in `curated.md`. Re-running is safe because the agent checks for existing registrations before interacting with the form.
+- **`luma-knowledge.md` grows large:** The file should stay focused on structural patterns, not accumulate per-event details. If it exceeds ~100 lines, the agent should prune older/redundant entries when updating.
+- **Concurrent access to `luma-knowledge.md`:** The serial loop design means only one agent writes at a time. If two conference registrations ever run in parallel, they could clobber writes. This is acceptable — the file is hints, not critical state.
