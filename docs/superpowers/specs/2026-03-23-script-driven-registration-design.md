@@ -54,7 +54,7 @@ register.sh (bash — loop controller)
 2. Load user info from `config.json` (name, email).
 3. Check for existing `custom-answers.json` — if present, load previously-provided answers.
 4. **Pass 1:** For each event:
-   - Create a temp file for the agent's result: `RESULT_FILE=$(mktemp)`.
+   - Create a temp file for the agent's result: `RESULT_FILE=$(mktemp)`. Clean up with `rm -f "$RESULT_FILE"` after reading, and use a trap (`trap 'rm -f "$RESULT_FILE"' EXIT`) to handle crashes.
    - Build a single-event message containing: user info, event details (name, date, URL), session file path, luma-knowledge.md path, result file path, and the single-event prompt template.
    - Call `timeout 120 openclaw agent --message "<message>"`. If timeout fires, treat as `failed`.
    - Read and parse JSON from the result file (not stdout — avoids agent log/thinking contamination).
@@ -165,7 +165,7 @@ New functions:
 | File | Action | Description |
 |------|--------|-------------|
 | `scripts/register.sh` | Modified | Rewritten as loop controller |
-| `scripts/common.sh` | Modified | Add `parse_registerable_events()`, `update_event_status()` |
+| `scripts/common.sh` | Modified | Add `parse_registerable_events()`, `update_event_status()`, `collect_unique_fields()` |
 | `SKILL.md` | Modified | Update Register section, mention `luma-knowledge.md` |
 | `templates/register-single-prompt.md` | Added | Single-event agent prompt |
 | `luma-knowledge.md` | Added | Shared Luma page knowledge (minimal skeleton) |
