@@ -1,0 +1,196 @@
+# Script-Driven Registration Loop
+
+**Date:** 2026-03-23
+**Status:** Draft
+**Problem:** The OpenClaw agent stops partway through the event registration loop when it encounters events with custom required fields, leaving remaining events unprocessed — even with fewer than 10 events.
+
+## Root Cause
+
+The current `register.sh` dumps all events and the prompt template to stdout, then hands full control to the agent for the entire loop. The agent is free to stop iterating at any point — and it does, typically after processing a few events with mixed outcomes (some registered, some needs-input, some failed). There is no script-level mechanism to ensure all events are attempted.
+
+## Solution Overview
+
+Move loop control from the agent to bash. `register.sh` parses `curated.md`, extracts events needing registration, and iterates over them — calling `openclaw agent --message` once per event. Each agent invocation handles exactly one RSVP and returns structured JSON. The script collects results, updates `curated.md`, and orchestrates a two-pass flow for events with custom fields.
+
+A shared `luma-knowledge.md` file at the skill root allows the agent to learn Luma's page structure over time, speeding up subsequent registrations.
+
+## Architecture
+
+```
+register.sh (bash — loop controller)
+  │
+  ├── Parse curated.md → list of events needing registration
+  │
+  ├── Pass 1: For each event
+  │     ├── openclaw agent --message (single-event prompt)
+  │     │     ├── Reads luma-knowledge.md (hints)
+  │     │     ├── Opens RSVP URL, identifies form
+  │     │     ├── Registers OR marks needs-input
+  │     │     ├── Updates luma-knowledge.md if page differs
+  │     │     └── Returns JSON to stdout
+  │     ├── Parse agent JSON output
+  │     └── Update curated.md in-place
+  │
+  ├── Collect needs-input events, deduplicate custom field labels
+  ├── Print summary, prompt user for missing answers
+  ├── Store answers in custom-answers.json
+  │
+  └── Pass 2: For each needs-input event
+        ├── openclaw agent --message (with custom answers)
+        ├── Parse output, update curated.md
+        └── Done
+```
+
+## Components
+
+### 1. Script-Driven Loop (`register.sh`)
+
+**Current behavior:** Outputs all context (user info, full curated.md, prompt) to stdout. Agent handles the entire loop.
+
+**New behavior:**
+
+1. Parse `curated.md` to extract events needing registration — those without a terminal status marker (`✅`, `🚫`, `❌`, `🔗`).
+2. Load user info from `config.json` (name, email).
+3. Check for existing `custom-answers.json` — if present, load previously-provided answers.
+4. **Pass 1:** For each event:
+   - Build a single-event message containing: user info, event details (name, date, URL), session file path, luma-knowledge.md path, and the single-event prompt template.
+   - Call `openclaw agent --message "<message>"`.
+   - Parse the agent's JSON response.
+   - Update `curated.md` with the event's new status.
+   - If `needs-input`: accumulate custom field labels.
+   - If `session-expired`: stop the loop, report remaining events.
+5. After pass 1: deduplicate custom field labels across all needs-input events.
+6. For each unique field not already in `custom-answers.json`, prompt the user.
+7. Save answers to `custom-answers.json`.
+8. **Pass 2:** For each needs-input event:
+   - Build message including the relevant answers from `custom-answers.json`.
+   - Call `openclaw agent --message`.
+   - Parse response, update `curated.md`.
+
+**Idempotency:** Re-running `register.sh` skips events already marked with terminal status. The `--retry-pending` flag limits processing to only `⏳ Needs input` events.
+
+### 2. Single-Event Prompt (`templates/register-single-prompt.md`)
+
+Focused instructions for one RSVP. The agent receives:
+- User name and email
+- One event's name, date, and RSVP URL
+- Path to `luma-knowledge.md`
+- Path to session cookies file
+- (Pass 2 only) Custom field answers
+
+**Agent instructions:**
+
+1. Read `luma-knowledge.md` for page structure hints.
+2. Load session cookies if available.
+3. Open the event RSVP URL.
+4. Read the page:
+   - If the user is already registered (confirmation visible), return `{"status": "registered"}` without touching the form.
+   - Otherwise, find the registration form / button.
+5. Click register/RSVP if needed to reveal the form.
+6. Identify fields:
+   - Standard fields (name, email): fill from provided user info.
+   - Required custom fields: any required field that is not name or email.
+   - Optional fields: leave blank. Fill only mandatory fields.
+7. Decision:
+   - Only standard required fields → fill, submit, confirm.
+   - Required custom fields present AND answers provided → fill all, submit, confirm.
+   - Required custom fields present, no answers → do NOT submit, return needs-input with field labels.
+8. If page structure differs from `luma-knowledge.md`, update the file.
+9. Return structured JSON to stdout:
+
+```json
+{
+  "status": "registered|needs-input|failed|closed|captcha|session-expired",
+  "fields": ["Company", "Role"],
+  "message": "brief human-readable note"
+}
+```
+
+**Constraints:** The agent returns JSON and stops. No summarizing, no follow-up questions, no deciding what to do next.
+
+### 3. Luma Knowledge File (`luma-knowledge.md`)
+
+A shared file at the skill root (not per-conference) containing learned patterns about Luma's page structure. Mix of natural language descriptions and concrete examples.
+
+**Contents:**
+- RSVP flow patterns (button location, form reveal behavior)
+- Form field identification (standard vs. custom, required markers)
+- Confirmation detection (success messages, URL changes)
+- Known variations (separate /register pages, waitlists)
+- `Last validated` date
+
+**Lifecycle:**
+- Agent reads it at the start of each registration.
+- Treats contents as hints — always validates against the actual page.
+- Updates the file if the page differs from what's described.
+- Includes a `Last validated` date so the agent knows staleness.
+- On a new conference (weeks/months later), the agent re-validates on the first event and updates as needed.
+
+**Bootstrap:** Starts as a minimal skeleton. The agent fills it in after the first successful registration.
+
+### 4. Custom Answers (`conferences/{id}/custom-answers.json`)
+
+Per-conference file storing the user's answers to custom required fields.
+
+```json
+{
+  "Company": "f(x) Protocol",
+  "Role": "Engineer",
+  "Wallet Address": "0x..."
+}
+```
+
+- Populated between pass 1 and pass 2.
+- Deduplicated: if 3 events ask for "Company", the user answers once.
+- Persisted: re-runs and future `--retry-pending` calls reuse stored answers.
+- New fields not yet in the file trigger a prompt to the user.
+
+### 5. Helper Functions (`scripts/common.sh`)
+
+New functions:
+- `parse_registerable_events()` — reads `curated.md`, extracts events without terminal status markers. Returns a list of event name, date, and RSVP URL.
+- `update_event_status()` — takes an event identifier and new status string, updates the corresponding line in `curated.md` in-place.
+
+## Files Changed
+
+| File | Action | Description |
+|------|--------|-------------|
+| `scripts/register.sh` | Modified | Rewritten as loop controller |
+| `scripts/common.sh` | Modified | Add `parse_registerable_events()`, `update_event_status()` |
+| `SKILL.md` | Modified | Update Register section, mention `luma-knowledge.md` |
+| `templates/register-single-prompt.md` | Added | Single-event agent prompt |
+| `luma-knowledge.md` | Added | Shared Luma page knowledge (minimal skeleton) |
+| `templates/register-prompt.md` | Kept | No longer used by script, kept as reference |
+
+**Per-conference runtime (gitignored):**
+| File | Description |
+|------|-------------|
+| `conferences/{id}/custom-answers.json` | User answers to custom fields |
+
+## Error Handling
+
+**Per-event agent errors:**
+- `failed` — log, mark `❌ Failed` in curated.md, continue loop.
+- `captcha` — mark `🔗 Register manually`, continue.
+- `closed` — mark `🚫 Closed`, continue.
+- `session-expired` — stop the loop. Print how many events remain. Suggest re-authenticating and re-running.
+
+**Script-level errors:**
+- `openclaw agent` times out or crashes — treat as `failed` for that event, continue loop.
+- `curated.md` malformed / can't be parsed — exit early with clear error.
+- `jq` not found — caught by existing SKILL.md requirement checks.
+
+**Knowledge file errors:**
+- `luma-knowledge.md` doesn't exist — agent navigates without hints, creates the file after first successful registration.
+- Agent can't update the file — non-fatal, registration works but next event won't benefit from hints.
+
+## Design Principles
+
+- **Bash controls the loop** — the agent can never quit the loop early.
+- **One agent call per event** — fresh context, no mid-loop confusion.
+- **Mandatory fields only** — optional fields are always left blank.
+- **User answers once per field** — deduplicated across events, persisted for re-runs.
+- **Knowledge accumulates** — each registration makes the next one faster.
+- **Knowledge is hints, not truth** — agent always validates against the actual page.
+- **Idempotent** — safe to re-run at any point.
+- **Already-registered detection** — agent recognizes existing registrations and moves on without touching the form.
