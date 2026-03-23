@@ -14,7 +14,6 @@ CONFIG=$(load_config "$CONF_DIR")
 
 EVENTS_FILE="$CONF_DIR/events.json"
 SESSION_FILE="$CONF_DIR/luma-session.json"
-KNOWLEDGE_FILE="$SKILL_DIR/luma-knowledge.md"
 DISCOVER_PROMPT=$(read_template "discover-luma-prompt.md")
 
 # Initialize empty events array if no existing file
@@ -60,7 +59,7 @@ $DISCOVER_PROMPT"
     echo '[]' > "$RESULT_FILE"
 
     # Call agent with timeout
-    if timeout 180 openclaw agent --message "$MESSAGE" > /dev/null 2>&1; then
+    if timeout 180 openclaw agent --session-id "discover-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
       log_info "  Agent completed"
     else
       EXIT_CODE=$?
@@ -145,7 +144,7 @@ RESULT_FILE: $RESULT_FILE
 
 Read the spreadsheet and extract events. For each row, capture: name, date, time, location, description, host, rsvp_url, rsvp_count. Write a JSON array to the result file. Set source to \"sheets\" for all events. Close the tab when done."
 
-      if timeout 120 openclaw agent --message "$SHEET_MSG" > /dev/null 2>&1; then
+      if timeout 120 openclaw agent --session-id "discover-$(date +%s)-$RANDOM" --message "$SHEET_MSG" > /dev/null 2>&1; then
         if [ -f "$RESULT_FILE" ] && jq 'type == "array"' "$RESULT_FILE" > /dev/null 2>&1; then
           SHEET_EVENTS=$(cat "$RESULT_FILE")
           log_info "  Browser: parsed $(echo "$SHEET_EVENTS" | jq 'length') events"

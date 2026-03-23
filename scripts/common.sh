@@ -5,7 +5,12 @@ set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="$SKILL_DIR/scripts"
 TEMPLATES_DIR="$SKILL_DIR/templates"
-CONFERENCES_DIR="$SKILL_DIR/conferences"
+
+# Workspace detection — conference data and runtime files live here
+WORKSPACE_DIR=$(jq -r '.agents.defaults.workspace // empty' ~/.openclaw/openclaw.json 2>/dev/null)
+WORKSPACE_DIR="${WORKSPACE_DIR:-$HOME/.openclaw/workspace}"
+CONFERENCES_DIR="$WORKSPACE_DIR/conferences"
+KNOWLEDGE_FILE="$WORKSPACE_DIR/luma-knowledge.md"
 
 # Logging
 log_info()  { echo "[conference-intern] $*"; }

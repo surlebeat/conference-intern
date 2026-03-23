@@ -35,7 +35,6 @@ CURATED_FILE="$CONF_DIR/curated.md"
 EVENTS_FILE="$CONF_DIR/events.json"
 SESSION_FILE="$CONF_DIR/luma-session.json"
 ANSWERS_FILE="$CONF_DIR/custom-answers.json"
-KNOWLEDGE_FILE="$SKILL_DIR/luma-knowledge.md"
 PROMPT_TEMPLATE=$(read_template "register-single-prompt.md")
 
 USER_NAME=$(config_get "$CONFIG" '.user_info.name')
@@ -131,7 +130,7 @@ $PROMPT_TEMPLATE"
   echo '{}' > "$RESULT_FILE"
 
   # Call the agent with timeout
-  if timeout 120 openclaw agent --message "$MESSAGE" > /dev/null 2>&1; then
+  if timeout 120 openclaw agent --session-id "register-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
     log_info "  Agent completed"
   else
     EXIT_CODE=$?
@@ -264,7 +263,7 @@ $PROMPT_TEMPLATE"
 
     echo '{}' > "$RESULT_FILE"
 
-    if timeout 120 openclaw agent --message "$MESSAGE" > /dev/null 2>&1; then
+    if timeout 120 openclaw agent --session-id "register-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
       log_info "  Agent completed"
     else
       EXIT_CODE=$?
