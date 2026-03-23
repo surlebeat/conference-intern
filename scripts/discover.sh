@@ -93,7 +93,10 @@ echo ""
 echo "1. Deduplicate: generate ID for each event using SHA-256 of name+date+time (truncated to 12 chars)"
 echo "   Use: echo -n \"\${name}\${date}\${time}\" | sha256sum | cut -c1-12"
 echo ""
-echo "2. Normalize each event to this schema:"
+echo "2. Source preference: if the same event (matched by name + date) appears from both Luma and Sheets,"
+echo "   prefer the Luma-sourced RSVP URL. Luma's own pages are authoritative."
+echo ""
+echo "3. Normalize each event to this schema:"
 echo '   {'
 echo '     "id": "<12-char-hash>",'
 echo '     "name": "<event name>",'
@@ -103,13 +106,20 @@ echo '     "location": "<venue name or empty>",'
 echo '     "description": "<brief description>",'
 echo '     "host": "<organizer name>",'
 echo '     "source": "<luma|sheets>",'
-echo '     "rsvp_url": "<registration URL>",'
+echo '     "rsvp_url": "<registration URL or null if dead link>",'
+echo '     "rsvp_status": "<ok|dead-link|timeout>",'
 echo '     "rsvp_count": <number or null>,'
 echo '     "is_new": <true if not in previous events.json>'
 echo '   }'
 echo ""
-echo "3. Compare with existing $EVENTS_FILE to set is_new flags"
-echo "4. Save merged results to $EVENTS_FILE"
+echo "4. Validate each RSVP URL before storing:"
+echo "   For each lu.ma URL, run: curl -sI -o /dev/null -w '%{http_code}' --max-time 5 <url>"
+echo "   - 2xx/3xx → set rsvp_status: ok"
+echo "   - 404 or other error → set rsvp_url: null, rsvp_status: dead-link"
+echo "   - Timeout (000) → keep URL, set rsvp_status: timeout (may work in browser)"
+echo ""
+echo "5. Compare with existing $EVENTS_FILE to set is_new flags"
+echo "6. Save merged results to $EVENTS_FILE"
 echo ""
 
 log_info "Agent: after completing the above steps, save all events to: $EVENTS_FILE"
