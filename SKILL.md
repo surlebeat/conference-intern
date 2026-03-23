@@ -60,53 +60,51 @@ Skill-level shared files:
 
 ## Agent Instructions
 
+### CRITICAL: Always Use the Scripts
+
+**You MUST run the bash scripts for every pipeline stage. Do NOT attempt to perform discovery, curation, or registration yourself by browsing pages directly.** The scripts handle looping, error recovery, state tracking, and tab cleanup that you cannot reliably do in a single agent turn.
+
+When the user asks you to:
+- **Set up a conference** → run `bash scripts/setup.sh <conference-id>`
+- **Find/discover events** → run `bash scripts/discover.sh <conference-id>`
+- **Curate/filter events** → run `bash scripts/curate.sh <conference-id>`
+- **Register for events** → run `bash scripts/register.sh <conference-id>`
+- **Check for new events** → run `bash scripts/monitor.sh <conference-id>`
+- **Run the full pipeline** → run each script in sequence: discover → curate → register
+- **Retry events needing input** → run `bash scripts/register.sh <conference-id> --retry-pending`
+
+The scripts will invoke you for individual tasks (one event at a time for registration). Follow the prompts they give you. **Never try to loop through events yourself** — the scripts control the loop to ensure every event is attempted.
+
 ### Browser Usage
 
-Use your browser capability to interact with Luma pages. **Do not hardcode CSS selectors or DOM paths.** Instead:
+When the scripts invoke you for browser tasks, use your browser capability to interact with pages. **Do not hardcode CSS selectors or DOM paths.** Instead:
 - Navigate to URLs and read the page content
 - Interpret the page like a human — find event listings, registration forms, buttons
 - This approach is evergreen — it works regardless of Luma UI changes
 
-### Registration Rules
+### Registration Rules (when invoked by register.sh)
 
 - Fill only **mandatory/required** fields on RSVP forms. Leave optional fields blank.
-- If you encounter required fields you cannot fill (custom fields like company, wallet address, etc.), mark the event as "needs-input" in `curated.md` with the field labels listed.
+- If you encounter required fields you cannot fill, return `needs-input` status with the field labels.
 - Never guess answers for custom fields — always defer to the user.
+- If the user is already registered, return `registered` status without touching the form.
+- Close the browser tab after each event — unless CAPTCHA is detected (keep that tab open).
 
 ### Error Handling
 
-**Discover:**
-- Luma page fails to load → log error, skip URL, continue with remaining sources. Notify user.
-- Google Sheets: try `gog` → try CSV export (`/pub?output=csv`) → try browser → skip and notify if all fail.
-- Zero events across all sources → stop pipeline, notify user.
-
-**Curate:**
-- Zero events → skip, notify user.
-- All events filtered out → notify user, suggest loosening criteria.
-
-**Register:**
-- RSVP page fails → mark "failed" in curated.md, continue to next event.
-- CAPTCHA detected → stop registration loop (session likely flagged), notify user.
-- Event full/closed → mark "closed", continue.
-- Session expired → stop registration loop, notify user to re-authenticate.
-- Custom required fields → mark "needs-input", collect all such fields, ask user once per unique field after pass 1.
-- Already registered → mark "registered" without interacting with the form.
-
-**Pipeline short-circuiting:**
-- Zero events discovered → skip curate and register.
-- Zero events curated → skip register.
+The scripts handle most error recovery automatically. When invoked for a single event:
+- Page fails to load → return `failed` status
+- CAPTCHA detected → return `captcha` status (script will stop the loop)
+- Event full/closed → return `closed` status
+- Session expired → return `session-expired` status (script will stop the loop)
 
 ### Stop Conditions
 
-The registration script stops the loop and asks the user when:
+The registration script (`register.sh`) automatically stops and asks the user when:
 - CAPTCHA is detected (Luma likely flagged the session)
 - Session expires mid-run
-- Luma 2FA code is needed (user must paste from email)
+- Custom fields need answers (collects all unique fields, asks once per field)
 
-The script pauses between passes to collect custom field answers:
-- After pass 1 completes, unique custom field labels are collected and the user is prompted once per field
-- Answers are saved and reused across re-runs
-
-Other stop conditions:
-- Zero events are found (may indicate bad URLs)
-- All events are filtered out (preferences may be too restrictive)
+Other pipeline stop conditions:
+- Zero events discovered → skip curate and register
+- Zero events curated → skip register
