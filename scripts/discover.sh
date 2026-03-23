@@ -89,6 +89,8 @@ if [ -n "$LUMA_URLS" ]; then
     echo "  - RSVP count (if visible)"
     echo "  - Source: luma"
     echo ""
+    echo "After extracting all events from this page, close the tab."
+    echo ""
   done
 fi
 
