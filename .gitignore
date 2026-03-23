@@ -1,7 +1,6 @@
-# User data — per-conference runtime files
-conferences/*/config.json
-conferences/*/events.json
-conferences/*/events-previous.json
-conferences/*/curated.md
-conferences/*/luma-session.json
-conferences/*/custom-answers.json
+# Runtime data — lives in openclaw workspace, not in skill install dir
+conferences/*/
+
+# Dev artifacts — not part of the published skill
+docs/
+tests/
