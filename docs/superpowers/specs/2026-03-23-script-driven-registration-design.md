@@ -165,7 +165,8 @@ New functions:
 | File | Action | Description |
 |------|--------|-------------|
 | `scripts/register.sh` | Modified | Rewritten as loop controller |
-| `scripts/common.sh` | Modified | Add `parse_registerable_events()`, `update_event_status()`, `collect_unique_fields()` |
+| `scripts/discover.sh` | Modified | Add link validation post-processing, Luma-source preference on dedup |
+| `scripts/common.sh` | Modified | Add `parse_registerable_events()`, `update_event_status()`, `collect_unique_fields()`, `validate_luma_url()` |
 | `SKILL.md` | Modified | Update Register section, mention `luma-knowledge.md` |
 | `templates/register-single-prompt.md` | Added | Single-event agent prompt |
 | `luma-knowledge.md` | Added | Shared Luma page knowledge (minimal skeleton) |
@@ -218,6 +219,33 @@ New functions:
 - **Already-registered detection** — agent recognizes existing registrations (including manual registrations done outside this tool) and moves on without touching the form.
 - **Luma-only** — parser filters to `lu.ma` URLs only; non-Luma events should already be marked `🔗` by the curate step.
 - **Rate-limit aware** — configurable delay between events (default 5s) to avoid triggering Luma's bot detection.
+
+## Link Validation at Discovery
+
+**Problem:** The discover step stores RSVP URLs without validation. When the same event appears in both a Luma page and a Google Sheet, the Sheet link may be stale or malformed, resulting in 404s in `events.json` that waste registration attempts.
+
+**Solution:** Add a link validation step to `discover.sh` post-processing:
+
+1. **Deduplication with source preference:** When the same event is found in both Luma and Google Sheets (matched by name + date), prefer the Luma-sourced URL. Luma's own event pages are authoritative; Sheet links are community-curated and more likely to be stale or wrong.
+
+2. **HTTP HEAD check:** Before storing an RSVP URL in `events.json`, validate it with a lightweight HEAD request:
+   ```bash
+   validate_luma_url() {
+     local url="$1"
+     local status=$(curl -sI -o /dev/null -w "%{http_code}" --max-time 5 "$url")
+     [ "$status" -ge 200 ] && [ "$status" -lt 400 ]
+   }
+   ```
+   - `2xx/3xx` → store the URL
+   - `404` or other error → mark the event with `"rsvp_url": null` and `"rsvp_status": "dead-link"`
+   - Timeout → store the URL anyway (link may work in browser even if HEAD fails)
+
+3. **Dead-link handling downstream:** Events with `"rsvp_url": null` are skipped by `parse_registerable_events()` in the registration step and marked `🔗 Dead link` in `curated.md` so the user knows.
+
+**Files affected:**
+- `scripts/discover.sh` — add validation after post-processing instructions
+- `scripts/common.sh` — add `validate_luma_url()` helper
+- `templates/register-single-prompt.md` — no change (never sees dead-link events)
 
 ## Edge Cases
 
