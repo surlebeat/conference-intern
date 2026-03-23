@@ -46,9 +46,21 @@ discover.sh (bash — orchestrator)
 
 For each Luma URL in `config.json`:
 
-1. Create temp result file.
-2. Build message containing: Luma URL, path to `luma-knowledge.md`, path to result file, and the `discover-luma-prompt.md` template.
-3. Call `timeout 180 openclaw agent --message "<message>"`. Longer timeout than registration — scrolling a full page with infinite scroll takes time.
+1. Initialize empty `events.json` (`[]`) if it doesn't exist.
+2. Load Luma session cookies path (`luma-session.json`) if available — some Luma pages may require auth.
+3. Create temp result file. Clean up with trap.
+4. Build message (same shape as register.sh):
+   ```
+   Discover events from this Luma page using the conference-intern discover prompt.
+
+   LUMA_URL: <url>
+   KNOWLEDGE_FILE: $SKILL_DIR/luma-knowledge.md
+   SESSION_FILE: <path to luma-session.json>
+   RESULT_FILE: <temp file path>
+
+   <contents of discover-luma-prompt.md>
+   ```
+5. Call `timeout 180 openclaw agent --message "<message>" > /dev/null 2>&1`. Longer timeout than registration — scrolling a full page with infinite scroll takes time.
 4. Read JSON array from result file. Each element follows the event schema:
    ```json
    {
@@ -104,8 +116,23 @@ curate.sh (bash — orchestrator)
 
 1. Read `events.json` — exit if file missing or empty.
 2. Read `config.json` — extract preferences (interests, avoid, blocked organizers, strategy).
-3. Build message containing: conference name, strategy, interests, avoid list, blocked organizers, full events JSON, curated.md output path, and the `curate-prompt.md` template.
-4. Call `timeout 120 openclaw agent --message "<message>"`.
+3. Build message (agent stdout suppressed, same as register.sh):
+   ```
+   Curate events for this conference using the conference-intern curate prompt.
+
+   CONFERENCE: <name>
+   STRATEGY: <aggressive|conservative>
+   INTERESTS: <comma-separated>
+   AVOID: <comma-separated>
+   BLOCKED_ORGANIZERS: <comma-separated>
+   OUTPUT_FILE: <path to curated.md>
+
+   EVENTS:
+   <full events.json contents>
+
+   <contents of curate-prompt.md>
+   ```
+4. Call `timeout 120 openclaw agent --message "<message>" > /dev/null 2>&1`.
 5. Verify `curated.md` was created and is non-empty.
 6. Log summary: count events per tier (Must Attend, Recommended, Optional, Blocked).
 7. If agent times out or curated.md not created: log error, exit non-zero.
@@ -114,7 +141,8 @@ curate.sh (bash — orchestrator)
 
 Single Luma page extraction prompt. The agent receives:
 - One Luma URL
-- Path to `luma-knowledge.md`
+- Path to `luma-knowledge.md` (`$SKILL_DIR/luma-knowledge.md` — shared with register)
+- Path to session cookies file
 - Path to result file
 
 Agent instructions:
@@ -146,14 +174,25 @@ Result format — JSON array written to result file:
 
 ## New Helper: `parse_sheets_csv()` in `common.sh`
 
-Parses a Google Sheets CSV into event JSON. The CSV format varies per sheet, but typically has columns like: Event Name, Date, Time, Location, URL, Description.
+Parses a Google Sheets CSV into event JSON. Uses `python3 -c` for robust CSV parsing (handles quoted fields, commas in values, etc.). Bash CSV parsing is too fragile for real-world spreadsheets.
+
+**Limitation:** Google Sheets CSV export only works if the sheet is published. Community sheets are best-effort — users should publish as CSV for reliable results.
 
 The function:
 1. Reads CSV from stdin.
-2. Detects column headers from the first row (case-insensitive matching for common variations: "event name"/"name"/"event", "date", "time", "url"/"link"/"rsvp", etc.).
-3. Parses each row into the event schema.
-4. Outputs JSON array to stdout.
-5. Skips rows with missing name or date.
+2. Uses `python3` csv module to parse rows properly.
+3. Detects column headers from the first row (case-insensitive matching for common variations: "event name"/"name"/"event", "date", "time", "url"/"link"/"rsvp", etc.).
+4. Maps each row into the event schema.
+5. Outputs JSON array to stdout.
+6. Skips rows with missing name or date.
+
+**Requires:** `python3` (standard on most systems).
+
+## Idempotency
+
+**discover.sh:** Re-running merges new events with existing `events.json`. Events matched by name+date are updated (not duplicated). New events get `is_new: true`. This means re-running is safe and additive.
+
+**curate.sh:** Re-running overwrites `curated.md` entirely. This is intentional — the curated output should reflect the latest events and preferences.
 
 ## Files Changed
 
