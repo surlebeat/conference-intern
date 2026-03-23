@@ -60,7 +60,7 @@ register.sh (bash — loop controller)
    - Read and parse JSON from the result file (not stdout — avoids agent log/thinking contamination).
    - Update `curated.md` with the event's new status.
    - If `needs-input`: accumulate custom field labels.
-   - If `session-expired`: stop the loop, report remaining events.
+   - If `session-expired` or `captcha`: stop the loop, report remaining events. CAPTCHA likely means Luma has flagged the session — continuing would produce repeated captcha failures.
    - Sleep for a configurable delay (default 5 seconds) to avoid rate limiting.
 5. After pass 1: deduplicate custom field labels across all needs-input events.
 6. For each unique field not already in `custom-answers.json`, prompt the user.
@@ -183,7 +183,8 @@ New functions:
 | `✅ Registered` | Successfully registered (by script or already registered) | Yes | Skipped |
 | `❌ Failed` | Registration failed (page error, pass 2 failure, timeout) | Yes | Skipped |
 | `🚫 Closed` | Event full or registration closed | Yes | Skipped |
-| `🔗 Register manually` | CAPTCHA or non-Luma event | Yes | Skipped |
+| `🔗 Register manually` | Non-Luma event | Yes | Skipped |
+| `🛑 CAPTCHA` | Luma flagged the session | No | Retried on next run (after user solves CAPTCHA) |
 | `🔒 Session expired` | Luma session expired mid-run | No | Retried on next run |
 | `⏳ Needs input: [fields]` | Custom required fields need user answers | No | Processed by pass 2 or `--retry-pending` |
 | _(no marker)_ | Not yet attempted | No | Processed by pass 1 |
@@ -192,7 +193,7 @@ New functions:
 
 **Per-event agent errors:**
 - `failed` — log, mark `❌ Failed` in curated.md, continue loop.
-- `captcha` — mark `🔗 Register manually`, continue.
+- `captcha` — stop the loop (CAPTCHA likely means Luma flagged the session; continuing would hit the same wall). Print how many events remain. Suggest the user solve the CAPTCHA manually and re-run.
 - `closed` — mark `🚫 Closed`, continue.
 - `session-expired` — stop the loop. Print how many events remain. Suggest re-authenticating and re-running.
 
