@@ -262,3 +262,72 @@ collect_unique_fields() {
     done
   done <<< "$fields_list"
 }
+
+# Parse Google Sheets CSV into event JSON array.
+# Uses python3 for robust CSV handling (quoted fields, commas in values).
+# Reads CSV from stdin, outputs JSON array to stdout.
+# Skips rows with missing name or date.
+parse_sheets_csv() {
+  python3 -c '
+import csv, json, sys
+
+# Read CSV from stdin
+reader = csv.DictReader(sys.stdin)
+
+# Map common header variations to our schema fields
+HEADER_MAP = {
+    "name": ["name", "event name", "event", "title", "event title"],
+    "date": ["date", "event date", "start date", "day"],
+    "time": ["time", "event time", "start time", "hours"],
+    "location": ["location", "venue", "place", "address"],
+    "description": ["description", "desc", "details", "about", "summary"],
+    "host": ["host", "organizer", "organiser", "hosted by", "org"],
+    "rsvp_url": ["url", "link", "rsvp", "rsvp url", "rsvp link", "registration", "register", "luma", "event url", "event link"],
+    "rsvp_count": ["rsvps", "rsvp count", "attendees", "count", "going"],
+}
+
+def find_column(fieldnames, target_names):
+    """Find the CSV column matching any of the target names (case-insensitive)."""
+    for fn in fieldnames:
+        if fn.strip().lower() in target_names:
+            return fn
+    return None
+
+if not reader.fieldnames:
+    print("[]")
+    sys.exit(0)
+
+col_map = {}
+for schema_field, variations in HEADER_MAP.items():
+    col = find_column(reader.fieldnames, variations)
+    if col:
+        col_map[schema_field] = col
+
+events = []
+for row in reader:
+    name = row.get(col_map.get("name", ""), "").strip()
+    date = row.get(col_map.get("date", ""), "").strip()
+    if not name or not date:
+        continue
+
+    rsvp_count_str = row.get(col_map.get("rsvp_count", ""), "").strip()
+    try:
+        rsvp_count = int(rsvp_count_str) if rsvp_count_str else None
+    except ValueError:
+        rsvp_count = None
+
+    events.append({
+        "name": name,
+        "date": date,
+        "time": row.get(col_map.get("time", ""), "").strip() or "",
+        "location": row.get(col_map.get("location", ""), "").strip() or "",
+        "description": row.get(col_map.get("description", ""), "").strip() or "",
+        "host": row.get(col_map.get("host", ""), "").strip() or "",
+        "rsvp_url": row.get(col_map.get("rsvp_url", ""), "").strip() or "",
+        "rsvp_count": rsvp_count,
+        "source": "sheets",
+    })
+
+print(json.dumps(events))
+'
+}
