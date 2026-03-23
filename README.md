@@ -19,9 +19,9 @@ Setup → Discover → Curate → Register
 ```
 
 1. **Setup** — interactive walkthrough to configure your conference: event source URLs, interest topics, avoid list, registration strategy
-2. **Discover** — fetches events from Luma and Google Sheets, normalizes them into a unified `events.json`
+2. **Discover** — fetches events from Luma and Google Sheets, validates RSVP URLs, normalizes them into a unified `events.json`
 3. **Curate** — LLM scores and ranks events based on your preferences, outputs a tiered schedule (`curated.md`)
-4. **Register** — auto-RSVPs on Luma for recommended events via browser automation
+4. **Register** — script-driven loop that calls the agent once per event, ensuring every event is attempted. Two-pass flow handles custom fields.
 5. **Monitor** — re-runs discover + curate on a schedule, flags newly added events
 
 ## Getting Started
@@ -90,24 +90,27 @@ Setup creates a `config.json` per conference where you define:
 
 ```
 conference-intern/
-├── SKILL.md               # Skill metadata + agent instructions
+├── SKILL.md                        # Skill metadata + agent instructions
+├── luma-knowledge.md               # Shared Luma page patterns (learned by agent)
 ├── scripts/
-│   ├── common.sh          # Shared helpers
-│   ├── setup.sh           # Interactive setup
-│   ├── discover.sh        # Event discovery
-│   ├── curate.sh          # LLM-powered curation
-│   ├── register.sh        # Browser-based RSVP
-│   └── monitor.sh         # New event detection
+│   ├── common.sh                   # Shared helpers (URL validation, MD parsing, etc.)
+│   ├── setup.sh                    # Interactive setup
+│   ├── discover.sh                 # Event discovery + link validation
+│   ├── curate.sh                   # LLM-powered curation
+│   ├── register.sh                 # Script-driven RSVP loop
+│   └── monitor.sh                  # New event detection
 ├── templates/
-│   ├── setup-prompt.md    # Agent prompt for setup flow
-│   ├── curate-prompt.md   # Agent prompt for event scoring
-│   └── register-prompt.md # Agent prompt for RSVP automation
+│   ├── setup-prompt.md             # Agent prompt for setup flow
+│   ├── curate-prompt.md            # Agent prompt for event scoring
+│   ├── register-prompt.md          # Agent prompt for RSVP (legacy, reference only)
+│   └── register-single-prompt.md   # Agent prompt for single-event RSVP
 └── conferences/
-    └── {conference-id}/   # Per-conference runtime data (gitignored)
+    └── {conference-id}/            # Per-conference runtime data (gitignored)
         ├── config.json
         ├── events.json
         ├── curated.md
-        └── luma-session.json
+        ├── luma-session.json
+        └── custom-answers.json     # User answers to custom RSVP fields
 ```
 
 ## Event Sources
@@ -124,10 +127,30 @@ Community-curated spreadsheets (commonly shared on Telegram/Twitter before confe
 
 ## Smart Registration
 
-- Fills only **mandatory** fields — never guesses optional or custom fields
-- Custom fields (company, wallet address, etc.) are flagged as **"needs input"** for you to fill manually
-- CAPTCHA, full events, and closed registration are detected and marked accordingly
-- Session cookies are persisted so you don't re-authenticate every run
+Registration is driven by a bash script that loops over events, calling the agent once per event. This ensures every event gets attempted — the agent can never quit the loop early.
+
+- **Script-driven loop** — `register.sh` controls iteration; the agent handles one RSVP at a time
+- **Two-pass flow** — pass 1 registers what it can, pass 2 retries events that need custom field answers
+- **Fills only mandatory fields** — never guesses optional or custom fields
+- **Deduplicated custom fields** — if 3 events ask for "Company", you answer once. Answers are saved in `custom-answers.json` and reused across re-runs
+- **Luma page learning** — a shared `luma-knowledge.md` file lets the agent learn page structure over time, speeding up subsequent registrations
+- **Link validation** — RSVP URLs are validated during discovery; dead links (404s) are filtered out before registration
+- **CAPTCHA and session expiry stop the loop** — instead of continuing into repeated failures
+- **Already-registered detection** — if you registered manually, the agent notices and moves on
+- **Session cookies are persisted** so you don't re-authenticate every run
+
+### CLI Flags
+
+```bash
+# Register for all pending events
+bash scripts/register.sh my-conference
+
+# Retry only events that need custom field answers
+bash scripts/register.sh my-conference --retry-pending
+
+# Override delay between events (default: 5 seconds)
+bash scripts/register.sh my-conference --delay 10
+```
 
 ## Requirements
 
@@ -139,8 +162,9 @@ Community-curated spreadsheets (commonly shared on Telegram/Twitter before confe
 
 - **Evergreen** — LLM reads pages like a human; no brittle selectors
 - **Agent-agnostic** — works with any agent that has browser access
-- **Re-runnable** — every pipeline stage is idempotent
+- **Re-runnable** — every pipeline stage is idempotent; safe to re-run after partial failures
 - **User in control** — never guesses answers for custom fields; always defers to you
+- **Bash controls the loop** — the agent handles one event at a time; the script ensures all events are attempted
 
 ## Contributing
 

@@ -52,6 +52,11 @@ Per-conference data lives in `conferences/{conference-id}/`:
 - `events-previous.json` — snapshot from last run (for monitoring diff)
 - `curated.md` — the curated schedule output (grouped by day, tiered)
 - `luma-session.json` — persisted Luma browser session cookies
+- `custom-answers.json` — user answers to custom RSVP fields (reused across registrations)
+
+Skill-level shared files:
+
+- `luma-knowledge.md` — shared Luma page patterns (learned by agent, speeds up registration)
 
 ## Agent Instructions
 
@@ -80,10 +85,12 @@ Use your browser capability to interact with Luma pages. **Do not hardcode CSS s
 - All events filtered out → notify user, suggest loosening criteria.
 
 **Register:**
-- RSVP page fails → mark "failed" in curated.md, continue.
-- CAPTCHA detected → mark "manual" with link, notify user.
+- RSVP page fails → mark "failed" in curated.md, continue to next event.
+- CAPTCHA detected → stop registration loop (session likely flagged), notify user.
 - Event full/closed → mark "closed", continue.
-- Session expired → attempt re-auth if interactive, otherwise mark "session-expired" and stop.
+- Session expired → stop registration loop, notify user to re-authenticate.
+- Custom required fields → mark "needs-input", collect all such fields, ask user once per unique field after pass 1.
+- Already registered → mark "registered" without interacting with the form.
 
 **Pipeline short-circuiting:**
 - Zero events discovered → skip curate and register.
@@ -91,8 +98,15 @@ Use your browser capability to interact with Luma pages. **Do not hardcode CSS s
 
 ### Stop Conditions
 
-Always pause and ask the user when:
-- Custom RSVP fields are detected that you cannot fill
+The registration script stops the loop and asks the user when:
+- CAPTCHA is detected (Luma likely flagged the session)
+- Session expires mid-run
 - Luma 2FA code is needed (user must paste from email)
+
+The script pauses between passes to collect custom field answers:
+- After pass 1 completes, unique custom field labels are collected and the user is prompted once per field
+- Answers are saved and reused across re-runs
+
+Other stop conditions:
 - Zero events are found (may indicate bad URLs)
 - All events are filtered out (preferences may be too restrictive)
