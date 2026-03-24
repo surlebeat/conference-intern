@@ -93,7 +93,7 @@ else
 fi
 
 # ==========================================================
-# Phase 2: Google Sheets (secondary source — bash fetches CSV)
+# Phase 2: Google Sheets (secondary source — browser extraction)
 # ==========================================================
 SHEETS=$(config_get "$CONFIG" '.sheets // [] | .[]' 2>/dev/null || true)
 
@@ -104,54 +104,33 @@ if [ -n "$SHEETS" ] && [ "$SHEETS" != "null" ]; then
   while IFS= read -r sheet_url; do
     [ -z "$sheet_url" ] || [ "$sheet_url" = "null" ] && continue
     log_info "Sheet: $sheet_url"
-    SHEET_EVENTS="[]"
 
-    # Extract Sheet ID
-    SHEET_ID=$(echo "$sheet_url" | sed 's|.*/d/\([^/]*\).*|\1|' || true)
+    echo '[]' > "$RESULT_FILE"
 
-    # Try gog CLI first
-    if has_gog && [ -n "$SHEET_ID" ]; then
-      log_info "  Trying gog CLI..."
-      if GOG_OUT=$(gog sheets get "$sheet_url" 2>/dev/null); then
-        SHEET_EVENTS=$(echo "$GOG_OUT" | parse_sheets_csv)
-        log_info "  gog: parsed $(echo "$SHEET_EVENTS" | jq 'length') events"
-      else
-        log_info "  gog failed, trying CSV export..."
-      fi
-    fi
-
-    # Fallback: CSV export via curl
-    if [ "$(echo "$SHEET_EVENTS" | jq 'length')" -eq 0 ] && [ -n "$SHEET_ID" ]; then
-      CSV_URL="https://docs.google.com/spreadsheets/d/$SHEET_ID/pub?output=csv"
-      log_info "  Trying CSV export: $CSV_URL"
-      if CSV_OUT=$(curl -sL --max-time 15 "$CSV_URL" 2>/dev/null) && [ -n "$CSV_OUT" ]; then
-        SHEET_EVENTS=$(echo "$CSV_OUT" | parse_sheets_csv)
-        log_info "  CSV: parsed $(echo "$SHEET_EVENTS" | jq 'length') events"
-      else
-        log_info "  CSV export failed"
-      fi
-    fi
-
-    # Fallback: browser (agent call)
-    if [ "$(echo "$SHEET_EVENTS" | jq 'length')" -eq 0 ]; then
-      log_info "  Trying browser fallback..."
-      echo '[]' > "$RESULT_FILE"
-
-      SHEET_MSG="Open this Google Sheet in the browser and extract all event data.
+    SHEET_MSG="Open this Google Sheet in the browser and extract all event data.
 
 URL: $sheet_url
 RESULT_FILE: $RESULT_FILE
 
-Read the spreadsheet and extract events. For each row, capture: name, date, time, location, description, host, rsvp_url, rsvp_count. Write a JSON array to the result file. Set source to \"sheets\" for all events. Close the tab when done."
+Read the spreadsheet and extract events. For each row, capture: name, date, time, location, description, host, rsvp_url, rsvp_count. Write a JSON array to the result file. Set source to \"sheets\" for all events. You MUST write to the exact path $RESULT_FILE. Close the tab when done."
 
-      if timeout 120 openclaw agent --session-id "discover-$(date +%s)-$RANDOM" --message "$SHEET_MSG" > /dev/null 2>&1; then
-        if [ -f "$RESULT_FILE" ] && jq 'type == "array"' "$RESULT_FILE" > /dev/null 2>&1; then
-          SHEET_EVENTS=$(cat "$RESULT_FILE")
-          log_info "  Browser: parsed $(echo "$SHEET_EVENTS" | jq 'length') events"
-        fi
+    if timeout 300 openclaw agent --session-id "discover-$(date +%s)-$RANDOM" --message "$SHEET_MSG" > /dev/null 2>&1; then
+      if [ -f "$RESULT_FILE" ] && jq 'type == "array"' "$RESULT_FILE" > /dev/null 2>&1; then
+        SHEET_EVENTS=$(cat "$RESULT_FILE")
+        SHEET_COUNT=$(echo "$SHEET_EVENTS" | jq 'length')
+        log_info "  Found $SHEET_COUNT events"
       else
-        log_warn "  Browser fallback failed — skipping this sheet"
+        log_warn "  Invalid or empty result — skipping"
+        continue
       fi
+    else
+      EXIT_CODE=$?
+      if [ "$EXIT_CODE" -eq 124 ]; then
+        log_warn "  Agent timed out (300s) — skipping this sheet"
+      else
+        log_warn "  Agent exited with code $EXIT_CODE — skipping this sheet"
+      fi
+      continue
     fi
 
     # Merge sheets events: skip any that already exist in Luma set (by name+date)
