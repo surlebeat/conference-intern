@@ -351,7 +351,7 @@ cli_register_event() {
   local registered_patterns='["You'\''re registered", "You'\''re going", "Vous êtes inscrit", "View your ticket", "Voir votre billet", "You'\''re on the waitlist", "Vous êtes sur la liste"]'
   local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "request to join", "join waitlist", "request access"]'
   local closed_patterns='["sold out", "full", "closed", "registration closed", "complet", "event is full", "capacity reached"]'
-  local captcha_patterns='["captcha", "recaptcha", "hcaptcha", "challenge"]'
+  local captcha_patterns='["recaptcha", "hcaptcha"]'
 
   # Step 1: Open page
   local target_id
@@ -370,7 +370,7 @@ cli_register_event() {
     const registered = $registered_patterns;
     const closed = $closed_patterns;
     const captcha = $captcha_patterns;
-    if (captcha.some(p => text.includes(p.toLowerCase()) || document.querySelector('iframe[src*=captcha], [class*=captcha], [class*=recaptcha]'))) return {status: 'captcha'};
+    if (document.querySelector('iframe[src*=captcha], iframe[src*=recaptcha], iframe[src*=hcaptcha], [class*=captcha], [class*=recaptcha], [class*=hcaptcha]') || captcha.some(p => text.includes(p.toLowerCase()))) return {status: 'captcha'};
     if (registered.some(p => text.includes(p.toLowerCase()))) return {status: 'registered'};
     if (closed.some(p => text.includes(p.toLowerCase()))) return {status: 'closed'};
     return {status: 'open'};
