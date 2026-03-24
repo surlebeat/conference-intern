@@ -35,7 +35,6 @@ CURATED_FILE="$CONF_DIR/curated.md"
 EVENTS_FILE="$CONF_DIR/events.json"
 SESSION_FILE="$CONF_DIR/luma-session.json"
 ANSWERS_FILE="$CONF_DIR/custom-answers.json"
-PROMPT_TEMPLATE=$(read_template "register-single-prompt.md")
 
 USER_NAME=$(config_get "$CONFIG" '.user_info.name')
 USER_EMAIL=$(config_get "$CONFIG" '.user_info.email')
@@ -102,46 +101,11 @@ while IFS=$'\t' read -r EVENT_NAME RSVP_URL; do
   log_info "[$EVENT_NUM/$EVENT_COUNT] $EVENT_NAME"
   log_info "  URL: $RSVP_URL"
 
-  # Build the agent message
-  MESSAGE="Register for this event using the conference-intern single-event registration prompt.
-
-USER_NAME: $USER_NAME
-USER_EMAIL: $USER_EMAIL
-EVENT_NAME: $EVENT_NAME
-RSVP_URL: $RSVP_URL
-KNOWLEDGE_FILE: $KNOWLEDGE_FILE
-SESSION_FILE: $SESSION_FILE
-RESULT_FILE: $RESULT_FILE"
-
-  # Add custom answers if available
-  if [ -n "$CUSTOM_ANSWERS" ]; then
-    MESSAGE+="
-CUSTOM_ANSWERS: $CUSTOM_ANSWERS"
-  else
-    MESSAGE+="
-CUSTOM_ANSWERS: (none)"
-  fi
-
-  MESSAGE+="
-
-$PROMPT_TEMPLATE"
-
   # Clear previous result
   echo '{}' > "$RESULT_FILE"
 
-  # Call the agent with timeout
-  if timeout 120 openclaw agent --session-id "register-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
-    log_info "  Agent completed"
-  else
-    EXIT_CODE=$?
-    if [ "$EXIT_CODE" -eq 124 ]; then
-      log_warn "  Agent timed out (120s)"
-      echo '{"status": "failed", "fields": [], "message": "Agent timed out"}' > "$RESULT_FILE"
-    else
-      log_warn "  Agent exited with code $EXIT_CODE"
-      echo '{"status": "failed", "fields": [], "message": "Agent crashed"}' > "$RESULT_FILE"
-    fi
-  fi
+  # Register using CLI browser commands (agent only for fuzzy field matching)
+  cli_register_event "$RSVP_URL" "$RESULT_FILE" "$CUSTOM_ANSWERS" "$KNOWLEDGE_FILE"
 
   # Parse result
   STATUS=$(jq -r '.status // "failed"' "$RESULT_FILE" 2>/dev/null || echo "failed")
@@ -248,33 +212,10 @@ if [ "$NEEDS_INPUT" -gt 0 ]; then
 
     log_info "[$PASS2_NUM/$PASS2_COUNT] $EVENT_NAME (retry with answers)"
 
-    MESSAGE="Register for this event using the conference-intern single-event registration prompt.
-
-USER_NAME: $USER_NAME
-USER_EMAIL: $USER_EMAIL
-EVENT_NAME: $EVENT_NAME
-RSVP_URL: $RSVP_URL
-KNOWLEDGE_FILE: $KNOWLEDGE_FILE
-SESSION_FILE: $SESSION_FILE
-RESULT_FILE: $RESULT_FILE
-CUSTOM_ANSWERS: $CUSTOM_ANSWERS
-
-$PROMPT_TEMPLATE"
-
     echo '{}' > "$RESULT_FILE"
 
-    if timeout 120 openclaw agent --session-id "register-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
-      log_info "  Agent completed"
-    else
-      EXIT_CODE=$?
-      if [ "$EXIT_CODE" -eq 124 ]; then
-        log_warn "  Agent timed out (120s)"
-        echo '{"status": "failed", "fields": [], "message": "Agent timed out"}' > "$RESULT_FILE"
-      else
-        log_warn "  Agent exited with code $EXIT_CODE"
-        echo '{"status": "failed", "fields": [], "message": "Agent crashed"}' > "$RESULT_FILE"
-      fi
-    fi
+    # Register using CLI browser commands with custom answers
+    cli_register_event "$RSVP_URL" "$RESULT_FILE" "$CUSTOM_ANSWERS" "$KNOWLEDGE_FILE"
 
     STATUS=$(jq -r '.status // "failed"' "$RESULT_FILE" 2>/dev/null || echo "failed")
     MSG=$(jq -r '.message // ""' "$RESULT_FILE" 2>/dev/null || echo "")
