@@ -59,7 +59,7 @@ $DISCOVER_PROMPT"
     echo '[]' > "$RESULT_FILE"
 
     # Call agent with timeout
-    if timeout 180 openclaw agent --session-id "discover-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
+    if timeout 300 openclaw agent --session-id "discover-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
       log_info "  Agent completed"
     else
       EXIT_CODE=$?
