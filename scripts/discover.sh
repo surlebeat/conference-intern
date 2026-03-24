@@ -199,41 +199,11 @@ if [ "$TOTAL" -eq 0 ]; then
   exit 1
 fi
 
-# Validate RSVP URLs
-log_info "Validating RSVP URLs..."
-# Write working set to temp file to avoid O(n^2) shell variable accumulation
+# Set rsvp_status to "ok" for all events (skip slow per-URL HEAD validation)
+# Dead links are caught at registration time when the page fails to load
+log_info "Skipping URL validation (handled at registration time)..."
 WORK_FILE=$(mktemp)
-echo "$WORKING_SET" > "$WORK_FILE"
-VALID=0
-DEAD=0
-TIMEOUT_COUNT=0
-
-for i in $(seq 0 $((TOTAL - 1))); do
-  URL=$(jq -r ".[$i].rsvp_url // \"\"" "$WORK_FILE")
-
-  if [ -n "$URL" ] && [[ "$URL" == *"lu.ma"* || "$URL" == *"luma.com"* ]]; then
-    validate_luma_url "$URL" && RET=0 || RET=$?
-    if [ "$RET" -eq 0 ]; then
-      WORK_FILE_TMP=$(jq ".[$i].rsvp_status = \"ok\"" "$WORK_FILE")
-      echo "$WORK_FILE_TMP" > "$WORK_FILE"
-      VALID=$((VALID + 1))
-    elif [ "$RET" -eq 2 ]; then
-      WORK_FILE_TMP=$(jq ".[$i].rsvp_status = \"timeout\"" "$WORK_FILE")
-      echo "$WORK_FILE_TMP" > "$WORK_FILE"
-      TIMEOUT_COUNT=$((TIMEOUT_COUNT + 1))
-    else
-      WORK_FILE_TMP=$(jq ".[$i].rsvp_url = null | .[$i].rsvp_status = \"dead-link\"" "$WORK_FILE")
-      echo "$WORK_FILE_TMP" > "$WORK_FILE"
-      DEAD=$((DEAD + 1))
-    fi
-  else
-    WORK_FILE_TMP=$(jq ".[$i].rsvp_status = \"ok\"" "$WORK_FILE")
-    echo "$WORK_FILE_TMP" > "$WORK_FILE"
-    VALID=$((VALID + 1))
-  fi
-done
-
-log_info "  Valid: $VALID | Dead links: $DEAD | Timeouts: $TIMEOUT_COUNT"
+echo "$WORKING_SET" | jq '[.[] | . + {"rsvp_status": "ok"}]' > "$WORK_FILE"
 
 # Generate IDs and set is_new flags
 log_info "Generating IDs and checking for new events..."
