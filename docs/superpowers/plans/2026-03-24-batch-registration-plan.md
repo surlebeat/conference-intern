@@ -1,3 +1,36 @@
+# Batch Registration — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Process registration in batches of 10, writing status JSON after each batch so the agent can ask the user for custom field answers between batches.
+
+**Architecture:** register.sh processes one batch per run and exits. The agent reads the status file, handles custom field conversation, then re-runs for the next batch. Final `--retry-pending` run uses accumulated answers.
+
+**Tech Stack:** Bash, jq, OpenClaw browser CLI
+
+**Spec:** `docs/superpowers/specs/2026-03-24-batch-registration-design.md`
+
+---
+
+## File Map
+
+| File | Action | What changes |
+|------|--------|-------------|
+| `scripts/register.sh` | Rewrite | Add `--batch-size`, write status JSON, remove interactive prompt + pass 2 |
+| `SKILL.md` | Modify | Update registration instructions for batch flow |
+
+---
+
+### Task 1: Rewrite register.sh for batch processing
+
+**Files:**
+- Rewrite: `scripts/register.sh`
+
+- [ ] **Step 1: Write the new register.sh**
+
+Replace the entire contents of `scripts/register.sh` with:
+
+```bash
 #!/usr/bin/env bash
 # Conference Intern — Register for Events (Batch Processing)
 # Usage: bash scripts/register.sh <conference-id> [--retry-pending] [--batch-size <n>] [--delay <seconds>]
@@ -76,6 +109,7 @@ done < <(parse_registerable_events "$CURATED_FILE" "$EVENTS_FILE" "$PARSE_MODE")
 
 if [ -z "$EVENTS_LIST" ]; then
   log_info "No events to register. All events already have terminal status."
+  # Write done status
   echo '{"batch_size":'"$BATCH_SIZE"',"processed_this_batch":0,"remaining":0,"results_this_batch":{"registered":0,"needs_input":0,"failed":0,"closed":0},"new_fields":[],"all_needs_input_fields":[],"done":true}' | jq '.' > "$STATUS_FILE"
   exit 0
 fi
@@ -232,3 +266,129 @@ if [ "$DONE" = true ]; then
 else
   log_info "Run again to process next batch."
 fi
+```
+
+- [ ] **Step 2: Syntax check**
+
+Run: `bash -n scripts/register.sh && echo "OK"`
+Expected: `OK`
+
+- [ ] **Step 3: Test argument parsing**
+
+Run: `bash scripts/register.sh test-conf --batch-size 5 2>&1 | head -1`
+Expected: `[conference-intern] ERROR: Conference 'test-conf' not found...`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add scripts/register.sh
+git commit -m "feat: batch registration — process 10 events per run, write status JSON
+
+Replaces single-run-all-events approach with batch processing.
+Each run handles --batch-size events (default 10), writes
+registration-status.json, and exits. Agent reads status, asks
+user for custom fields, then re-runs for next batch.
+
+Removes interactive read prompt and pass 2 (agent handles
+custom field conversation between batches).
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 2: Update SKILL.md for batch flow
+
+**Files:**
+- Modify: `SKILL.md`
+
+- [ ] **Step 1: Update registration instructions**
+
+In SKILL.md, find the section that says `- **Register for events** → run \`bash scripts/register.sh <conference-id>\`` and the surrounding registration instructions. Replace the registration-related content with:
+
+```markdown
+- **Register for events** → run `bash scripts/register.sh <conference-id>` (processes 10 events per batch)
+- **Retry events needing input** → run `bash scripts/register.sh <conference-id> --retry-pending`
+```
+
+And update the registration rules section to describe the batch flow:
+
+```markdown
+### Registration (batch flow)
+
+Registration processes events in batches of 10. After each batch run:
+1. Run `bash scripts/register.sh <conference-id>`
+2. Read `conferences/<id>/registration-status.json`
+3. If `new_fields` is not empty: ask the user for answers, write them to `conferences/<id>/custom-answers.json`
+4. If `done` is false: run `register.sh` again for the next batch
+5. When `done` is true and there are `⏳ Needs input` events: run `register.sh --retry-pending` to retry them with the accumulated answers
+6. Report final results to the user
+
+The script exits after each batch — do NOT try to run multiple batches in one command.
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add SKILL.md
+git commit -m "docs: update SKILL.md for batch registration flow
+
+Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3: Sync, push, merge
+
+- [ ] **Step 1: Sync to installed skill + clawhub**
+
+```bash
+DEST=/home/germaine/.npm-global/lib/node_modules/openclaw/skills/conference-intern
+cp scripts/register.sh "$DEST/scripts/register.sh"
+cp SKILL.md "$DEST/SKILL.md"
+cp scripts/register.sh ~/Dev/conference-intern-clawhub/scripts/register.sh
+cp SKILL.md ~/Dev/conference-intern-clawhub/SKILL.md
+echo "Synced"
+```
+
+- [ ] **Step 2: Restart gateway**
+
+```bash
+systemctl --user restart openclaw-gateway
+sleep 2
+openclaw health
+```
+
+- [ ] **Step 3: Clean corrupted custom-answers.json**
+
+```bash
+rm /home/germaine/.openclaw/workspace/conferences/ethcc2026/custom-answers.json 2>/dev/null
+echo "Cleaned corrupted answers"
+```
+
+- [ ] **Step 4: Push, PR, merge**
+
+```bash
+git push
+gh pr create --title "feat: batch registration (10 events per run)" --body "$(cat <<'PREOF'
+## Summary
+
+Process events in batches of 10 instead of all at once.
+Script exits after each batch, writes registration-status.json.
+Agent reads status, asks user for custom fields, re-runs next batch.
+
+- Removes interactive read prompt (broken in agent exec)
+- Removes pass 2 (agent handles retry via --retry-pending)
+- New --batch-size flag (default 10)
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+PREOF
+)"
+gh pr merge --merge
+```
+
+- [ ] **Step 5: Publish to ClawHub**
+
+```bash
+clawhub publish ~/Dev/conference-intern-clawhub --slug conference-intern --name "Conference Intern" --version 1.2.0 --changelog "Batch registration: 10 events per run, agent asks for custom fields between batches"
+```

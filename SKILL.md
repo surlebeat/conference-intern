@@ -68,10 +68,10 @@ When the user asks you to:
 - **Set up a conference** → run `bash scripts/setup.sh <conference-id>`
 - **Find/discover events** → run `bash scripts/discover.sh <conference-id>`
 - **Curate/filter events** → run `bash scripts/curate.sh <conference-id>`
-- **Register for events** → run `bash scripts/register.sh <conference-id>`
+- **Register for events** → run `bash scripts/register.sh <conference-id>` (processes 10 events per batch)
+- **Retry events needing input** → run `bash scripts/register.sh <conference-id> --retry-pending`
 - **Check for new events** → run `bash scripts/monitor.sh <conference-id>`
 - **Run the full pipeline** → run each script in sequence: discover → curate → register
-- **Retry events needing input** → run `bash scripts/register.sh <conference-id> --retry-pending`
 
 The scripts will invoke you for individual tasks (one event at a time for registration). Follow the prompts they give you. **Never try to loop through events yourself** — the scripts control the loop to ensure every event is attempted.
 
@@ -82,8 +82,19 @@ When the scripts invoke you for browser tasks, use your browser capability to in
 - Interpret the page like a human — find event listings, registration forms, buttons
 - This approach is evergreen — it works regardless of Luma UI changes
 
-### Registration Rules (when invoked by register.sh)
+### Registration (batch flow)
 
+Registration processes events in batches of 10. After each batch run:
+1. Run `bash scripts/register.sh <conference-id>`
+2. Read `conferences/<id>/registration-status.json`
+3. If `new_fields` is not empty: ask the user for answers, write them to `conferences/<id>/custom-answers.json`
+4. If `done` is false: run `register.sh` again for the next batch
+5. When `done` is true and there are `⏳ Needs input` events: run `register.sh --retry-pending` to retry them with the accumulated answers
+6. Report final results to the user
+
+The script exits after each batch — do NOT try to run multiple batches in one command.
+
+When invoked by the script for individual events:
 - Fill only **mandatory/required** fields on RSVP forms. Leave optional fields blank.
 - If you encounter required fields you cannot fill, return `needs-input` status with the field labels.
 - Never guess answers for custom fields — always defer to the user.
