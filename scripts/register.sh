@@ -105,7 +105,9 @@ while IFS=$'\t' read -r EVENT_NAME RSVP_URL; do
   echo '{}' > "$RESULT_FILE"
 
   # Register using CLI browser commands (agent only for fuzzy field matching)
-  cli_register_event "$RSVP_URL" "$RESULT_FILE" "$CUSTOM_ANSWERS" "$KNOWLEDGE_FILE"
+  if ! cli_register_event "$RSVP_URL" "$RESULT_FILE" "$CUSTOM_ANSWERS" "$KNOWLEDGE_FILE"; then
+    echo '{"status": "failed", "fields": [], "message": "Registration helper crashed"}' > "$RESULT_FILE"
+  fi
 
   # Parse result
   STATUS=$(jq -r '.status // "failed"' "$RESULT_FILE" 2>/dev/null || echo "failed")
@@ -215,7 +217,9 @@ if [ "$NEEDS_INPUT" -gt 0 ]; then
     echo '{}' > "$RESULT_FILE"
 
     # Register using CLI browser commands with custom answers
-    cli_register_event "$RSVP_URL" "$RESULT_FILE" "$CUSTOM_ANSWERS" "$KNOWLEDGE_FILE"
+    if ! cli_register_event "$RSVP_URL" "$RESULT_FILE" "$CUSTOM_ANSWERS" "$KNOWLEDGE_FILE"; then
+      echo '{"status": "failed", "fields": [], "message": "Registration helper crashed"}' > "$RESULT_FILE"
+    fi
 
     STATUS=$(jq -r '.status // "failed"' "$RESULT_FILE" 2>/dev/null || echo "failed")
     MSG=$(jq -r '.message // ""' "$RESULT_FILE" 2>/dev/null || echo "")

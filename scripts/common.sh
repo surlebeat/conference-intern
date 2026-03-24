@@ -365,7 +365,8 @@ cli_register_event() {
   # Step 2: Check already registered / closed / captcha
   local page_check
   page_check=$(openclaw browser evaluate --target-id "$target_id" --fn "() => {
-    const text = document.body.innerText.toLowerCase();
+    const body = document.body;
+    const text = (body && body.innerText ? body.innerText : '').toLowerCase();
     const registered = $registered_patterns;
     const closed = $closed_patterns;
     const captcha = $captcha_patterns;
