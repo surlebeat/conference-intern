@@ -123,9 +123,9 @@ Community-curated spreadsheets (commonly shared on Telegram/Twitter before confe
 
 ## Smart Registration
 
-Registration is driven by a bash script that loops over events, calling the agent once per event. This ensures every event gets attempted — the agent can never quit the loop early.
+Registration is driven by a bash script that loops over events, using CLI browser commands for each one. The agent is only called for fuzzy-matching custom field labels (~5-10s text-only) — all browser work is handled by the CLI.
 
-- **Script-driven loop** — `register.sh` controls iteration; the agent handles one RSVP at a time
+- **Hybrid CLI + agent** — CLI opens pages, clicks buttons, fills forms, submits. Agent only matches custom field labels to your answers.
 - **Two-pass flow** — pass 1 registers what it can, pass 2 retries events that need custom field answers
 - **Fills only mandatory fields** — never guesses optional or custom fields
 - **Deduplicated custom fields** — if 3 events ask for "Company", you answer once. Answers are saved in `custom-answers.json` and reused across re-runs
