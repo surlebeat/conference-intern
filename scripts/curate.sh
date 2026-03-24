@@ -56,7 +56,7 @@ $CURATE_PROMPT"
 
 # Call agent
 log_info "Calling agent to curate events..."
-if timeout 120 openclaw agent --session-id "curate-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
+if timeout 300 openclaw agent --session-id "curate-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
   log_info "Agent completed"
 else
   EXIT_CODE=$?
