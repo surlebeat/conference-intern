@@ -13,48 +13,62 @@ You are extracting ALL events from a single Luma event listing page. Follow thes
 
 - Do NOT call any Luma API endpoints (api2.luma.com, public-api.luma.com, etc.)
 - Do NOT write Python scripts — use browser tools only, then write the JSON file directly
-- Do NOT explore `__NEXT_DATA__`, window objects, or internal data structures
-- Do NOT over-engineer — extract the data and write it. Stay focused.
+- Do NOT explore `__NEXT_DATA__`, window objects, JSON-LD, or internal data structures
+- Do NOT reason about individual event cards one at a time — use a single bulk JavaScript function
+- Do NOT over-engineer — inspect, extract, write, done.
 - You MUST write to the exact path `{RESULT_FILE}` — do not create your own temp file.
 
 ## Steps
 
-1. **Read** the Luma knowledge file at `{KNOWLEDGE_FILE}` if it exists. Use it as hints. Do not trust blindly — verify against the actual page.
+### 1. Preparation
 
-2. **Load** session cookies from `{SESSION_FILE}` if the file exists.
+Read the Luma knowledge file at `{KNOWLEDGE_FILE}` if it exists. Use it as hints for DOM structure. Load session cookies from `{SESSION_FILE}` if the file exists.
 
-3. **Open** `{LUMA_URL}` in the browser.
+### 2. Open and scroll
 
-4. **Check for JSON-LD structured data** — look for `<script type="application/ld+json">` on the page. Luma typically embeds event data in this format for SEO. If found, parse the `"events"` array to get the initial event list with names, dates, URLs, and locations.
+Open `{LUMA_URL}` in the browser. Luma uses infinite scroll — you must scroll to load ALL events:
 
-5. **Scroll to load ALL events** — Luma uses infinite scroll:
-   a. Take a snapshot and count the visible event cards.
-   b. Scroll to the bottom of the page.
-   c. Wait 1-2 seconds for new events to load.
-   d. Take another snapshot and count events again.
-   e. Repeat b-d until no new events appear (same count as previous snapshot).
+a. Take a snapshot and count the visible event cards.
+b. Scroll to the bottom of the page.
+c. Wait 1-2 seconds for new events to load.
+d. Take another snapshot and count events again.
+e. Repeat b-d until no new events appear (same count as previous snapshot).
 
-6. **Verify count** — compare the JSON-LD event count vs the visible DOM event count. If the DOM shows more events than JSON-LD, extract the additional ones from the page content. Merge into a single list (deduplicate by name + date).
+### 3. Inspect one event card
 
-7. **Extract event details** — for each event in the merged list, capture:
-   - Event name
-   - Date (YYYY-MM-DD format)
-   - Time (HH:MM-HH:MM or empty)
-   - Location/venue
-   - Brief description
-   - Host/organizer name
-   - RSVP URL (the direct link to register — typically `https://lu.ma/<slug>`)
-   - RSVP count (number, if visible)
+Run a small `evaluate` on a single event card to understand the DOM structure:
+- What element contains the event name?
+- What element contains the date/time?
+- What element contains the host/organizer?
+- What element contains the location?
+- Where is the link (RSVP URL)?
 
-8. **Write the result** — write the JSON array directly to `{RESULT_FILE}`. Use the `exec` tool with a simple `cat` heredoc or `echo` if needed. Do not write a Python script.
+This is a quick reconnaissance step — one small evaluate call.
 
-9. **Update knowledge file** at `{KNOWLEDGE_FILE}` if the page structure differed from what's described (or if the file is empty). Keep under ~100 lines. Update the `Last validated` date.
+### 4. Bulk-extract ALL events in one JavaScript function
 
-10. **Close the tab.**
+Based on what you learned from the single card, write ONE `evaluate` function that:
+- Selects all event card elements on the page
+- For each card, extracts: name, date, time, location, host, rsvp_url
+- Determines the date from the nearest date header/separator above each card
+- Formats dates as YYYY-MM-DD
+- Returns the complete JSON array
+
+This single function runs in the browser and returns all events at once. Do NOT iterate over cards in your thinking — let JavaScript do the loop.
+
+### 5. Write the result
+
+Write the returned JSON array to `{RESULT_FILE}` using `exec` with a heredoc. Add `"source": "luma"` to each event if not already set.
+
+### 6. Update knowledge file
+
+Update `{KNOWLEDGE_FILE}` with what you learned about the DOM structure (card selectors, date header format, link patterns). Keep under ~100 lines. Update the `Last validated` date.
+
+### 7. Close the tab and stop.
 
 ## Result Format
 
-Write a JSON array to `{RESULT_FILE}`. Nothing else — no markdown, no explanation, just the JSON array:
+JSON array in `{RESULT_FILE}`:
 
 ```json
 [
