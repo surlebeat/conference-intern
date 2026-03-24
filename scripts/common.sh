@@ -381,12 +381,12 @@ cli_register_event() {
 
   if [ "$page_status" = "registered" ]; then
     echo '{"status": "registered", "fields": [], "message": "Already registered"}' > "$result_file"
-    openclaw browser close --target-id "$target_id" 2>/dev/null || true
+    openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
     return
   fi
   if [ "$page_status" = "closed" ]; then
     echo '{"status": "closed", "fields": [], "message": "Event full or registration closed"}' > "$result_file"
-    openclaw browser close --target-id "$target_id" 2>/dev/null || true
+    openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
     return
   fi
   if [ "$page_status" = "captcha" ]; then
@@ -417,7 +417,7 @@ cli_register_event() {
     agent_result=$(timeout 60 openclaw agent --session-id "regbtn-$(date +%s)-$RANDOM" --message "Open the browser tab with target ID $target_id. Find and click the registration/RSVP button on this Luma event page. Just click it and reply with 'clicked' or 'not found'. Do not fill any forms." 2>&1 | tail -1)
     if [[ "$agent_result" != *"clicked"* ]]; then
       echo '{"status": "failed", "fields": [], "message": "Could not find register button"}' > "$result_file"
-      openclaw browser close --target-id "$target_id" 2>/dev/null || true
+      openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
       return
     fi
   fi
@@ -448,7 +448,7 @@ cli_register_event() {
 
   if [ -z "$fields_json" ] || [ "$(echo "$fields_json" | jq 'length' 2>/dev/null)" = "0" ]; then
     echo '{"status": "failed", "fields": [], "message": "No form fields found after clicking register"}' > "$result_file"
-    openclaw browser close --target-id "$target_id" 2>/dev/null || true
+    openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
     return
   fi
 
@@ -477,7 +477,7 @@ cli_register_event() {
 
       if [ "$(echo "$unknown" | jq 'length' 2>/dev/null)" -gt 0 ]; then
         echo "{\"status\": \"needs-input\", \"fields\": $(echo "$unknown" | jq '.'), \"message\": \"Custom fields need answers\"}" > "$result_file"
-        openclaw browser close --target-id "$target_id" 2>/dev/null || true
+        openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
         return
       fi
 
@@ -503,7 +503,7 @@ cli_register_event() {
       local field_labels
       field_labels=$(echo "$empty_required" | jq '[.[].label]')
       echo "{\"status\": \"needs-input\", \"fields\": $field_labels, \"message\": \"Custom fields need answers\"}" > "$result_file"
-      openclaw browser close --target-id "$target_id" 2>/dev/null || true
+      openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
       return
     fi
   fi
@@ -540,6 +540,8 @@ cli_register_event() {
     echo '{"status": "registered", "fields": [], "message": "Form submitted, confirmation unclear"}' > "$result_file"
   fi
 
-  # Step 9: Close tab
+  # Step 9: Close tab (navigate to about:blank first to kill Stripe/Maps iframes)
+  openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true
+  sleep 1
   openclaw browser close --target-id "$target_id" 2>/dev/null || true
 }

@@ -11,7 +11,7 @@ source "$(dirname "$0")/common.sh"
 # --- Parse arguments ---
 CONFERENCE_ID=""
 RETRY_PENDING=false
-DELAY=5
+DELAY=15
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
