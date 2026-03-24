@@ -31,12 +31,12 @@ RESULT_FILE=$(mktemp)
 trap 'rm -f "$RESULT_FILE"' EXIT
 
 # ==========================================================
-# Phase 1: Luma URLs (primary source — agent browses pages)
+# Phase 1: Luma URLs (primary source — CLI browser extraction)
 # ==========================================================
 LUMA_URLS=$(config_get "$CONFIG" '.luma_urls // [] | .[]' 2>/dev/null || true)
 
 if [ -n "$LUMA_URLS" ] && [ "$LUMA_URLS" != "null" ]; then
-  log_info "--- Luma sources ---"
+  log_info "--- Luma sources (CLI browser) ---"
   LUMA_COUNT=0
   LUMA_EVENTS=0
 
@@ -45,46 +45,83 @@ if [ -n "$LUMA_URLS" ] && [ "$LUMA_URLS" != "null" ]; then
     LUMA_COUNT=$((LUMA_COUNT + 1))
     log_info "[$LUMA_COUNT] Luma page: $luma_url"
 
-    # Build agent message
-    MESSAGE="Discover events from this Luma page using the conference-intern discover prompt.
-
-LUMA_URL: $luma_url
-KNOWLEDGE_FILE: $KNOWLEDGE_FILE
-SESSION_FILE: $SESSION_FILE
-RESULT_FILE: $RESULT_FILE
-
-$DISCOVER_PROMPT"
-
-    # Clear previous result
-    echo '[]' > "$RESULT_FILE"
-
-    # Call agent with timeout
-    if timeout 300 openclaw agent --session-id "discover-$(date +%s)-$RANDOM" --message "$MESSAGE" > /dev/null 2>&1; then
-      log_info "  Agent completed"
-    else
-      EXIT_CODE=$?
-      if [ "$EXIT_CODE" -eq 124 ]; then
-        log_warn "  Agent timed out (180s) — skipping this URL"
-      else
-        log_warn "  Agent exited with code $EXIT_CODE — skipping this URL"
-      fi
+    # Open page in browser
+    TARGET_ID=$(openclaw browser open "$luma_url" --json 2>/dev/null | jq -r '.targetId // empty')
+    if [ -z "$TARGET_ID" ]; then
+      log_warn "  Failed to open page — skipping"
       continue
     fi
+    log_info "  Page opened (target: ${TARGET_ID:0:8}...)"
+    sleep 5  # initial page load
+
+    # Scroll to load all events (infinite scroll)
+    PREV_COUNT=0
+    for scroll_i in $(seq 1 20); do
+      CUR_COUNT=$(openclaw browser evaluate --target-id "$TARGET_ID" --fn 'async () => { window.scrollTo(0, document.documentElement.scrollHeight); await new Promise(r => setTimeout(r, 2000)); return document.querySelectorAll("[class*=card-wrapper]").length; }' 2>/dev/null)
+      CUR_COUNT="${CUR_COUNT//[^0-9]/}"  # strip non-numeric
+      [ -z "$CUR_COUNT" ] && CUR_COUNT=0
+      log_info "  Scroll $scroll_i: $CUR_COUNT cards"
+      if [ "$CUR_COUNT" -eq "$PREV_COUNT" ] && [ "$CUR_COUNT" -gt 0 ]; then
+        log_info "  All events loaded"
+        break
+      fi
+      PREV_COUNT="$CUR_COUNT"
+    done
+
+    # Bulk-extract all events in one JS evaluate call
+    log_info "  Extracting events..."
+    echo '[]' > "$RESULT_FILE"
+
+    openclaw browser evaluate --target-id "$TARGET_ID" --fn '() => {
+      const months = {"janvier":"01","février":"02","mars":"03","avril":"04","mai":"05","juin":"06","juillet":"07","août":"08","septembre":"09","octobre":"10","novembre":"11","décembre":"12"};
+      const events = [];
+      let currentDate = "";
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+      let node;
+      while (node = walker.nextNode()) {
+        const cls = (typeof node.className === "string") ? node.className : "";
+        if (cls.includes("content") && cls.includes("animated")) {
+          const txt = node.textContent.trim();
+          const dm = txt.match(/^(\d{1,2})\s*(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)/i);
+          if (dm) currentDate = "2026-" + months[dm[2].toLowerCase()] + "-" + dm[1].padStart(2, "0");
+        }
+        if (cls.includes("card-wrapper")) {
+          const link = node.querySelector("a.event-link");
+          const href = link ? link.href : "";
+          const ariaName = link ? (link.getAttribute("aria-label") || "") : "";
+          const txt = node.textContent.replace(/\u200b/g, "").replace(/\s+/g, " ").trim();
+          const tm = txt.match(/(\d{1,2}:\d{2})/);
+          const time = tm ? tm[1] : "";
+          const name = ariaName || txt.replace(/^\s*\d{1,2}:\d{2}\s*/, "").split(/Par /)[0].trim();
+          const hostMatch = txt.match(/Par\s+(.+)/);
+          let host = "";
+          if (hostMatch) {
+            host = hostMatch[1].split(/[·]/)[0].replace(/\s*(et|,)\s+/g, ", ").trim();
+            host = host.replace(/\s*(Cannes|JW Marriott|Provence|Register|Liste|Participe|\+\d).*/i, "").trim();
+          }
+          const rsvpMatch = txt.match(/\+(\d[\d,.]*k?)/);
+          let rsvpCount = null;
+          if (rsvpMatch) { let n = rsvpMatch[1].replace(",", ""); if (n.endsWith("k")) n = parseFloat(n)*1000; rsvpCount = parseInt(n); }
+          if (name) events.push({name, date: currentDate, time, host, rsvp_url: href, rsvp_count: rsvpCount, source: "luma"});
+        }
+      }
+      return events;
+    }' 2>/dev/null > "$RESULT_FILE"
+
+    # Close the tab
+    openclaw browser close --target-id "$TARGET_ID" 2>/dev/null || true
 
     # Read and validate result
     if [ -f "$RESULT_FILE" ] && jq 'type == "array"' "$RESULT_FILE" > /dev/null 2>&1; then
       PAGE_COUNT=$(jq 'length' "$RESULT_FILE")
       log_info "  Found $PAGE_COUNT events"
       LUMA_EVENTS=$((LUMA_EVENTS + PAGE_COUNT))
-
-      # Merge into working set
       WORKING_SET=$(echo "$WORKING_SET" | jq --slurpfile new "$RESULT_FILE" '. + $new[0]')
     else
       log_warn "  Invalid or empty result — skipping"
     fi
 
-    # Delay between URLs
-    sleep 5
+    sleep 5  # delay between URLs
   done <<< "$LUMA_URLS"
 
   log_info "Luma total: $LUMA_EVENTS events from $LUMA_COUNT pages"
