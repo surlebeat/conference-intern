@@ -336,3 +336,209 @@ for row in reader:
 print(json.dumps(events))
 '
 }
+
+# Register for a single Luma event using CLI browser commands.
+# Agent is only called for fuzzy field matching when custom fields are present.
+# Args: $1=rsvp_url, $2=result_file, $3=custom_answers_json (or empty), $4=knowledge_file
+# Writes JSON result to $2.
+cli_register_event() {
+  local rsvp_url="$1"
+  local result_file="$2"
+  local custom_answers="${3:-}"
+  local knowledge_file="${4:-}"
+
+  # Known patterns
+  local registered_patterns='["You'\''re registered", "You'\''re going", "Vous êtes inscrit", "View your ticket", "Voir votre billet", "You'\''re on the waitlist", "Vous êtes sur la liste"]'
+  local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "request to join", "join waitlist", "request access"]'
+  local closed_patterns='["sold out", "full", "closed", "registration closed", "complet", "event is full", "capacity reached"]'
+  local captcha_patterns='["captcha", "recaptcha", "hcaptcha", "challenge"]'
+
+  # Step 1: Open page
+  local target_id
+  target_id=$(openclaw browser open "$rsvp_url" --json 2>/dev/null | jq -r '.targetId // empty')
+  if [ -z "$target_id" ]; then
+    echo '{"status": "failed", "fields": [], "message": "Failed to open page"}' > "$result_file"
+    return
+  fi
+  sleep 3
+
+  # Step 2: Check already registered / closed / captcha
+  local page_check
+  page_check=$(openclaw browser evaluate --target-id "$target_id" --fn "() => {
+    const text = document.body.innerText.toLowerCase();
+    const registered = $registered_patterns;
+    const closed = $closed_patterns;
+    const captcha = $captcha_patterns;
+    if (captcha.some(p => text.includes(p.toLowerCase()) || document.querySelector('iframe[src*=captcha], [class*=captcha], [class*=recaptcha]'))) return {status: 'captcha'};
+    if (registered.some(p => text.includes(p.toLowerCase()))) return {status: 'registered'};
+    if (closed.some(p => text.includes(p.toLowerCase()))) return {status: 'closed'};
+    return {status: 'open'};
+  }" 2>/dev/null)
+
+  local page_status
+  page_status=$(echo "$page_check" | jq -r '.status // "open"' 2>/dev/null)
+
+  if [ "$page_status" = "registered" ]; then
+    echo '{"status": "registered", "fields": [], "message": "Already registered"}' > "$result_file"
+    openclaw browser close --target-id "$target_id" 2>/dev/null || true
+    return
+  fi
+  if [ "$page_status" = "closed" ]; then
+    echo '{"status": "closed", "fields": [], "message": "Event full or registration closed"}' > "$result_file"
+    openclaw browser close --target-id "$target_id" 2>/dev/null || true
+    return
+  fi
+  if [ "$page_status" = "captcha" ]; then
+    echo '{"status": "captcha", "fields": [], "message": "CAPTCHA detected"}' > "$result_file"
+    return
+  fi
+
+  # Step 3: Find and click Register button
+  local btn_result
+  btn_result=$(openclaw browser evaluate --target-id "$target_id" --fn "() => {
+    const patterns = $register_btn_patterns;
+    const btns = [...document.querySelectorAll('button, a[role=button], [class*=btn], [class*=button], a.action-button')];
+    for (const btn of btns) {
+      const text = (btn.textContent || '').trim().toLowerCase();
+      if (patterns.some(p => text.includes(p))) {
+        btn.click();
+        return {found: true, text: btn.textContent.trim()};
+      }
+    }
+    return {found: false};
+  }" 2>/dev/null)
+
+  local btn_found
+  btn_found=$(echo "$btn_result" | jq -r '.found // false' 2>/dev/null)
+
+  if [ "$btn_found" != "true" ]; then
+    local agent_result
+    agent_result=$(timeout 60 openclaw agent --session-id "regbtn-$(date +%s)-$RANDOM" --message "Open the browser tab with target ID $target_id. Find and click the registration/RSVP button on this Luma event page. Just click it and reply with 'clicked' or 'not found'. Do not fill any forms." 2>&1 | tail -1)
+    if [[ "$agent_result" != *"clicked"* ]]; then
+      echo '{"status": "failed", "fields": [], "message": "Could not find register button"}' > "$result_file"
+      openclaw browser close --target-id "$target_id" 2>/dev/null || true
+      return
+    fi
+  fi
+
+  sleep 2
+
+  # Step 4: Extract form fields
+  local fields_json
+  fields_json=$(openclaw browser evaluate --target-id "$target_id" --fn '() => {
+    const fields = [];
+    document.querySelectorAll("input, select, textarea").forEach(el => {
+      if (el.type === "hidden" || el.type === "submit") return;
+      const label = (el.labels && el.labels[0] ? el.labels[0].textContent : "") ||
+                    el.getAttribute("aria-label") ||
+                    el.getAttribute("placeholder") ||
+                    el.name || "";
+      fields.push({
+        label: label.trim(),
+        type: el.type || el.tagName.toLowerCase(),
+        required: el.required || el.getAttribute("aria-required") === "true",
+        value: el.value || "",
+        name: el.name || "",
+        id: el.id || ""
+      });
+    });
+    return fields;
+  }' 2>/dev/null)
+
+  if [ -z "$fields_json" ] || [ "$(echo "$fields_json" | jq 'length' 2>/dev/null)" = "0" ]; then
+    echo '{"status": "failed", "fields": [], "message": "No form fields found after clicking register"}' > "$result_file"
+    openclaw browser close --target-id "$target_id" 2>/dev/null || true
+    return
+  fi
+
+  # Step 5: Check for empty required fields
+  local empty_required
+  empty_required=$(echo "$fields_json" | jq '[.[] | select(.required == true and .value == "")]' 2>/dev/null)
+  local empty_count
+  empty_count=$(echo "$empty_required" | jq 'length' 2>/dev/null)
+  [ -z "$empty_count" ] && empty_count=0
+
+  if [ "$empty_count" -gt 0 ]; then
+    if [ -n "$custom_answers" ] && [ "$custom_answers" != "(none)" ]; then
+      # Step 6: Call agent for fuzzy field matching (text only)
+      local match_prompt
+      match_prompt=$(read_template "register-field-match-prompt.md")
+      local empty_labels
+      empty_labels=$(echo "$empty_required" | jq -r '.[].label' 2>/dev/null)
+
+      local match_result
+      match_result=$(timeout 30 openclaw agent --session-id "regmatch-$(date +%s)-$RANDOM" --message "$(printf '%s\n\nEMPTY REQUIRED FIELDS:\n%s\n\nAVAILABLE ANSWERS:\n%s' "$match_prompt" "$empty_labels" "$custom_answers")" 2>/dev/null | tail -1)
+
+      local matches
+      matches=$(echo "$match_result" | jq '.matches // {}' 2>/dev/null || echo '{}')
+      local unknown
+      unknown=$(echo "$match_result" | jq '.unknown // []' 2>/dev/null || echo '[]')
+
+      if [ "$(echo "$unknown" | jq 'length' 2>/dev/null)" -gt 0 ]; then
+        echo "{\"status\": \"needs-input\", \"fields\": $(echo "$unknown" | jq '.'), \"message\": \"Custom fields need answers\"}" > "$result_file"
+        openclaw browser close --target-id "$target_id" 2>/dev/null || true
+        return
+      fi
+
+      # Fill matched fields via CLI
+      echo "$matches" | jq -r 'to_entries[] | "\(.key)\t\(.value)"' 2>/dev/null | while IFS=$'\t' read -r label value; do
+        openclaw browser evaluate --target-id "$target_id" --fn "(function() {
+          const inputs = document.querySelectorAll('input, select, textarea');
+          for (const el of inputs) {
+            const lbl = (el.labels && el.labels[0] ? el.labels[0].textContent : '') ||
+                        el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || '';
+            if (lbl.trim() === $(jq -n --arg l "$label" '$l')) {
+              el.value = $(jq -n --arg v "$value" '$v');
+              el.dispatchEvent(new Event('input', {bubbles: true}));
+              el.dispatchEvent(new Event('change', {bubbles: true}));
+              return true;
+            }
+          }
+          return false;
+        })()" 2>/dev/null > /dev/null
+      done
+    else
+      # No custom answers — report needs-input
+      local field_labels
+      field_labels=$(echo "$empty_required" | jq '[.[].label]')
+      echo "{\"status\": \"needs-input\", \"fields\": $field_labels, \"message\": \"Custom fields need answers\"}" > "$result_file"
+      openclaw browser close --target-id "$target_id" 2>/dev/null || true
+      return
+    fi
+  fi
+
+  # Step 7: Click submit
+  openclaw browser evaluate --target-id "$target_id" --fn '() => {
+    const patterns = ["submit", "confirm", "envoyer", "join event", "register", "rsvp", "request to join"];
+    const btns = [...document.querySelectorAll("button[type=submit], button, input[type=submit]")];
+    for (const btn of btns) {
+      const text = (btn.textContent || btn.value || "").trim().toLowerCase();
+      if (patterns.some(p => text.includes(p))) { btn.click(); return true; }
+    }
+    const submit = document.querySelector("button[type=submit], input[type=submit]");
+    if (submit) { submit.click(); return true; }
+    return false;
+  }' 2>/dev/null > /dev/null
+
+  sleep 3
+
+  # Step 8: Check confirmation
+  local confirm_check
+  confirm_check=$(openclaw browser evaluate --target-id "$target_id" --fn "() => {
+    const text = document.body.innerText.toLowerCase();
+    const confirmed = $registered_patterns;
+    if (confirmed.some(p => text.includes(p.toLowerCase()))) return 'registered';
+    return 'unknown';
+  }" 2>/dev/null)
+
+  confirm_check=$(echo "$confirm_check" | tr -d '"' 2>/dev/null)
+
+  if [ "$confirm_check" = "registered" ]; then
+    echo '{"status": "registered", "fields": [], "message": "Successfully registered"}' > "$result_file"
+  else
+    echo '{"status": "registered", "fields": [], "message": "Form submitted, confirmation unclear"}' > "$result_file"
+  fi
+
+  # Step 9: Close tab
+  openclaw browser close --target-id "$target_id" 2>/dev/null || true
+}
