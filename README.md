@@ -116,14 +116,10 @@ conference-intern/
 ## Event Sources
 
 ### Luma
-The agent navigates Luma pages using browser automation and reads event listings the way a human would — no hardcoded CSS selectors or DOM paths. This makes the skill resilient to Luma UI changes.
+The script opens Luma calendar pages directly via the OpenClaw browser CLI, scrolls to load all events (infinite scroll), then extracts everything in one bulk JavaScript call. No agent context window needed — fast, reliable, handles 150+ events in seconds.
 
 ### Google Sheets
-Community-curated spreadsheets (commonly shared on Telegram/Twitter before conferences) are fetched via a three-tier fallback:
-
-1. [`gog`](https://github.com/jonfriesen/gog) CLI (fastest, if installed)
-2. CSV export URL via `curl`
-3. Browser fallback (last resort)
+Community-curated spreadsheets (commonly shared on Telegram/Twitter before conferences) are read via browser automation — the agent opens the sheet and extracts event rows directly.
 
 ## Smart Registration
 
@@ -133,7 +129,6 @@ Registration is driven by a bash script that loops over events, calling the agen
 - **Two-pass flow** — pass 1 registers what it can, pass 2 retries events that need custom field answers
 - **Fills only mandatory fields** — never guesses optional or custom fields
 - **Deduplicated custom fields** — if 3 events ask for "Company", you answer once. Answers are saved in `custom-answers.json` and reused across re-runs
-- **Luma page learning** — a shared `luma-knowledge.md` file lets the agent learn page structure over time, speeding up subsequent registrations
 - **Link validation** — RSVP URLs are validated during discovery; dead links (404s) are filtered out before registration
 - **CAPTCHA and session expiry stop the loop** — instead of continuing into repeated failures
 - **Already-registered detection** — if you registered manually, the agent notices and moves on
@@ -156,12 +151,12 @@ bash scripts/register.sh my-conference --delay 10
 
 - [OpenClaw](https://openclaw.com) with browser capability
 - [`jq`](https://jqlang.github.io/jq/) for JSON processing
-- [`gog`](https://github.com/jonfriesen/gog) (optional) for Google Sheets access
+- `python3` (for CSV parsing fallback)
 
 ## Design Principles
 
-- **Evergreen** — LLM reads pages like a human; no brittle selectors
-- **Agent-agnostic** — works with any agent that has browser access
+- **Evergreen** — browser extraction adapts to page changes; no hardcoded API calls
+- **Agent-agnostic** — works with any OpenClaw agent that has browser access
 - **Re-runnable** — every pipeline stage is idempotent; safe to re-run after partial failures
 - **User in control** — never guesses answers for custom fields; always defers to you
 - **Bash controls the loop** — the agent handles one event at a time; the script ensures all events are attempted
