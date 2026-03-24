@@ -211,7 +211,7 @@ TIMEOUT_COUNT=0
 for i in $(seq 0 $((TOTAL - 1))); do
   URL=$(jq -r ".[$i].rsvp_url // \"\"" "$WORK_FILE")
 
-  if [ -n "$URL" ] && [[ "$URL" == *"lu.ma"* ]]; then
+  if [ -n "$URL" ] && [[ "$URL" == *"lu.ma"* || "$URL" == *"luma.com"* ]]; then
     validate_luma_url "$URL" && RET=0 || RET=$?
     if [ "$RET" -eq 0 ]; then
       WORK_FILE_TMP=$(jq ".[$i].rsvp_status = \"ok\"" "$WORK_FILE")

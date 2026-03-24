@@ -151,7 +151,7 @@ parse_registerable_events() {
   fi
 }
 
-# Internal: look up an event's RSVP URL from events.json, filter to lu.ma only
+# Internal: look up an event's RSVP URL from events.json, filter to Luma URLs only
 _resolve_and_output() {
   local event_name="$1"
   local events_file="$2"
@@ -160,8 +160,8 @@ _resolve_and_output() {
     .[] | select(.name == $name) | .rsvp_url // empty
   ' "$events_file" | head -1)
 
-  # Only output lu.ma URLs
-  if [ -n "$rsvp_url" ] && [[ "$rsvp_url" == *"lu.ma"* ]]; then
+  # Only output Luma URLs (lu.ma or luma.com)
+  if [ -n "$rsvp_url" ] && [[ "$rsvp_url" == *"lu.ma"* || "$rsvp_url" == *"luma.com"* ]]; then
     printf '%s\t%s\n' "$event_name" "$rsvp_url"
   fi
 }
