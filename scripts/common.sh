@@ -115,38 +115,36 @@ parse_registerable_events() {
   local current_event=""
   local skip_event=false
   local found_pending=false
+  local -A seen=()
 
   while IFS= read -r line; do
-    # Match event lines: - **Event Name** — ...
     if [[ "$line" =~ ^-\ \*\*(.+)\*\*\ — ]]; then
-      # If we had a previous event that wasn't skipped, output it
       if [ -n "$current_event" ] && [ "$skip_event" = false ]; then
-        # In pending-only mode, only output if we found ⏳
         if [ "$mode" = "all" ] || [ "$found_pending" = true ]; then
-          _resolve_and_output "$current_event" "$events_file"
+          if [ -z "${seen[$current_event]+x}" ]; then
+            _resolve_and_output "$current_event" "$events_file"
+            seen["$current_event"]=1
+          fi
         fi
       fi
       current_event="${BASH_REMATCH[1]}"
       skip_event=false
       found_pending=false
-      # In pending-only mode, default to skipping unless ⏳ found
-    # Check status lines for markers
     elif [ -n "$current_event" ] && [ "$skip_event" = false ]; then
-      # Terminal markers — skip these events in all modes
       if [[ "$line" =~ ✅|❌|🚫|🔗 ]]; then
         skip_event=true
       fi
-      # Track if this event has ⏳ marker (for pending-only mode)
       if [[ "$line" =~ ⏳ ]]; then
         found_pending=true
       fi
     fi
   done < "$curated_file"
 
-  # Handle the last event
   if [ -n "$current_event" ] && [ "$skip_event" = false ]; then
     if [ "$mode" = "all" ] || [ "$found_pending" = true ]; then
-      _resolve_and_output "$current_event" "$events_file"
+      if [ -z "${seen[$current_event]+x}" ]; then
+        _resolve_and_output "$current_event" "$events_file"
+      fi
     fi
   fi
 }
@@ -176,8 +174,6 @@ update_event_status() {
   local tmp_file
   tmp_file=$(mktemp)
 
-  # States: "scanning" (looking for event), "found" (saw event line),
-  #         "past_host" (saw Host: line, looking for status), "done" (status written)
   local state="scanning"
 
   while IFS= read -r line; do
@@ -189,49 +185,38 @@ update_event_status() {
         fi
         ;;
       found)
-        # Expect Host: line next
         if [[ "$line" =~ ^[[:space:]]+Host: ]]; then
           echo "$line" >> "$tmp_file"
           state="past_host"
-        elif [[ "$line" =~ ^[[:space:]]+(✅|❌|🚫|🔗|🛑|🔒|⏳) ]]; then
-          # Status line directly after event (no Host line) — replace it
+        elif [[ "$line" =~ ^[[:space:]]+(✅|❌|🚫|🔗|🛑|🔒|⏳|📝) ]]; then
           echo "  $new_status" >> "$tmp_file"
-          state="done"
+          state="scanning"
         elif [[ "$line" == -* ]] || [[ ! "$line" =~ ^[[:space:]] ]]; then
-          # Next event or section — insert status before this line
           echo "  $new_status" >> "$tmp_file"
           echo "$line" >> "$tmp_file"
-          state="done"
+          state="scanning"
         else
           echo "$line" >> "$tmp_file"
         fi
         ;;
       past_host)
-        # After Host: line — next indented line is existing status or insertion point
-        if [[ "$line" =~ ^[[:space:]]+(✅|❌|🚫|🔗|🛑|🔒|⏳) ]]; then
-          # Replace existing status
+        if [[ "$line" =~ ^[[:space:]]+(✅|❌|🚫|🔗|🛑|🔒|⏳|📝) ]]; then
           echo "  $new_status" >> "$tmp_file"
-          state="done"
+          state="scanning"
         elif [[ "$line" == -* ]] || [[ ! "$line" =~ ^[[:space:]] ]] || [ -z "$line" ]; then
-          # Next event, section header, or blank line — insert status before
           echo "  $new_status" >> "$tmp_file"
           echo "$line" >> "$tmp_file"
-          state="done"
+          state="scanning"
         else
-          # Other indented line (description?) — insert status before it
           echo "  $new_status" >> "$tmp_file"
           echo "$line" >> "$tmp_file"
-          state="done"
+          state="scanning"
         fi
-        ;;
-      done)
-        echo "$line" >> "$tmp_file"
         ;;
     esac
   done < "$curated_file"
 
-  # Handle end of file — if event was found but no status written
-  if [ "$state" != "done" ] && [ "$state" != "scanning" ]; then
+  if [ "$state" != "scanning" ]; then
     echo "  $new_status" >> "$tmp_file"
   fi
 
