@@ -170,12 +170,12 @@ Read the spreadsheet and extract events. For each row, capture: name, date, time
       continue
     fi
 
-    # Merge sheets events: skip any that already exist in Luma set (by name+date)
+    # Merge sheets events: skip any that already exist in Luma set (by name only — date formats differ between sources)
     BEFORE=$(echo "$WORKING_SET" | jq 'length')
     WORKING_SET=$(echo "$WORKING_SET" | jq --argjson sheet "$SHEET_EVENTS" '
       . as $existing |
-      ($existing | map({key: (.name + "|" + .date), value: true}) | from_entries) as $luma_keys |
-      $sheet | map(select((.name + "|" + .date) as $k | $luma_keys[$k] != true)) |
+      ($existing | map({key: .name, value: true}) | from_entries) as $luma_keys |
+      $sheet | map(select(.name as $n | $luma_keys[$n] != true)) |
       $existing + .
     ')
     ADDED=$(($(echo "$WORKING_SET" | jq 'length') - BEFORE))
