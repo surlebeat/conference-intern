@@ -135,6 +135,10 @@ while IFS=$'\t' read -r EVENT_NAME RSVP_URL; do
       update_event_status "$CURATED_FILE" "$EVENT_NAME" "✅ Registered"
       REGISTERED=$((REGISTERED + 1))
       ;;
+    submitted)
+      update_event_status "$CURATED_FILE" "$EVENT_NAME" "📝 Submitted"
+      REGISTERED=$((REGISTERED + 1))
+      ;;
     needs-input)
       update_event_status "$CURATED_FILE" "$EVENT_NAME" "⏳ Needs input: [$FIELDS]"
       NEEDS_INPUT=$((NEEDS_INPUT + 1))
