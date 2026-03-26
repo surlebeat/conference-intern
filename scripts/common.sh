@@ -334,7 +334,7 @@ cli_register_event() {
 
   # Known patterns
   local registered_patterns='["You'\''re registered", "You'\''re going", "Vous êtes inscrit", "View your ticket", "Voir votre billet", "You'\''re on the waitlist", "Vous êtes sur la liste"]'
-  local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "inscription", "rejoindre", "request to join", "join waitlist", "request access", "demander", "liste d'\''attente"]'
+  local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "request to join", "join waitlist", "request access", "demander", "liste d'\''attente"]'
   local captcha_patterns='["recaptcha", "hcaptcha"]'
 
   # Step 1: Open page
@@ -465,6 +465,19 @@ $form_prompt"
   if [ -z "$result_status" ] || [ "$result_status" = "" ] || [ "$result_status" = "null" ]; then
     echo '{"status": "failed", "fields": [], "message": "Agent did not write result"}' > "$result_file"
   fi
+
+  # Validate agent status — only allow: registered, submitted, needs-input, failed
+  # The CLI already handles closed/captcha/session-expired before the agent is called.
+  # If the agent returns anything else, it's a misclassification — treat as failed (retryable).
+  result_status=$(jq -r '.status // "failed"' "$result_file" 2>/dev/null)
+  case "$result_status" in
+    registered|submitted|needs-input|failed) ;; # valid
+    *)
+      local agent_msg
+      agent_msg=$(jq -r '.message // ""' "$result_file" 2>/dev/null)
+      echo "{\"status\": \"failed\", \"fields\": [], \"message\": \"Agent returned invalid status '$result_status': $agent_msg\"}" > "$result_file"
+      ;;
+  esac
 
   # Step 5: Close tab (agent doesn't handle this)
   openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true
