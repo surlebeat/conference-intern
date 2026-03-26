@@ -125,6 +125,15 @@ parse_registerable_events() {
   # Returns 0 (include) or 1 (skip) based on tier and strategy
   _tier_included() {
     local tier="$1"
+    # Custom tier override: "custom:must_attend,recommended"
+    if [[ "$strategy" == custom:* ]]; then
+      local allowed="${strategy#custom:}"
+      if [[ ",$allowed," == *",$tier,"* ]]; then
+        return 0
+      else
+        return 1
+      fi
+    fi
     case "$strategy" in
       conservative)
         case "$tier" in
