@@ -61,7 +61,7 @@ if timeout 300 openclaw agent --session-id "curate-$(date +%s)-$RANDOM" --messag
 else
   EXIT_CODE=$?
   if [ "$EXIT_CODE" -eq 124 ]; then
-    log_error "Agent timed out (120s). Try re-running."
+    log_error "Agent timed out (300s). Try re-running."
   else
     log_error "Agent exited with code $EXIT_CODE."
   fi
