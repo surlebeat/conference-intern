@@ -106,22 +106,61 @@ validate_luma_url() {
 # Parse curated.md for events needing registration.
 # Cross-references events.json to resolve RSVP URLs.
 # Outputs tab-separated lines: event_name\trsvp_url
-# Args: $1 = curated.md path, $2 = events.json path, $3 = mode ("all" or "pending-only")
+# Args: $1 = curated.md path, $2 = events.json path, $3 = mode ("all" or "pending-only"),
+#       $4 = strategy ("aggressive" or "conservative")
+#   aggressive:   include must_attend, recommended, optional. Skip blocked.
+#   conservative: include must_attend, recommended only. Skip optional and blocked.
 parse_registerable_events() {
   local curated_file="$1"
   local events_file="$2"
   local mode="${3:-all}"
+  local strategy="${4:-aggressive}"
 
   local current_event=""
   local skip_event=false
   local found_pending=false
+  local current_tier=""
   local -A seen=()
 
+  # Returns 0 (include) or 1 (skip) based on tier and strategy
+  _tier_included() {
+    local tier="$1"
+    case "$strategy" in
+      conservative)
+        case "$tier" in
+          must_attend|recommended) return 0 ;;
+          *) return 1 ;;
+        esac
+        ;;
+      aggressive|*)
+        case "$tier" in
+          blocked) return 1 ;;
+          *) return 0 ;;
+        esac
+        ;;
+    esac
+  }
+
   while IFS= read -r line; do
+    # Detect section headers to track current tier
+    if [[ "$line" =~ ^###\ Must\ Attend ]]; then
+      current_tier="must_attend"
+      continue
+    elif [[ "$line" =~ ^###\ Recommended ]]; then
+      current_tier="recommended"
+      continue
+    elif [[ "$line" =~ ^###\ Optional ]]; then
+      current_tier="optional"
+      continue
+    elif [[ "$line" =~ ^##\ Blocked ]]; then
+      current_tier="blocked"
+      continue
+    fi
+
     if [[ "$line" =~ ^-\ \*\*(.+)\*\*\ — ]]; then
       if [ -n "$current_event" ] && [ "$skip_event" = false ]; then
         if [ "$mode" = "all" ] || [ "$found_pending" = true ]; then
-          if [ -z "${seen[$current_event]+x}" ]; then
+          if _tier_included "$current_tier" && [ -z "${seen[$current_event]+x}" ]; then
             _resolve_and_output "$current_event" "$events_file"
             seen["$current_event"]=1
           fi
@@ -142,7 +181,7 @@ parse_registerable_events() {
 
   if [ -n "$current_event" ] && [ "$skip_event" = false ]; then
     if [ "$mode" = "all" ] || [ "$found_pending" = true ]; then
-      if [ -z "${seen[$current_event]+x}" ]; then
+      if _tier_included "$current_tier" && [ -z "${seen[$current_event]+x}" ]; then
         _resolve_and_output "$current_event" "$events_file"
       fi
     fi
@@ -430,6 +469,13 @@ cli_register_event() {
   fi
 
   sleep 2  # wait for form to appear
+
+  # Verify tab is still alive before handing to agent
+  if ! openclaw browser evaluate --target-id "$target_id" --fn '() => true' > /dev/null 2>&1; then
+    echo '{"status": "failed", "fields": [], "message": "Tab died before form fill"}' > "$result_file"
+    openclaw browser close --target-id "$target_id" 2>/dev/null || true
+    return
+  fi
 
   # Step 4: Hand off to agent for form filling
   local form_prompt
