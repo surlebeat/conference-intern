@@ -50,7 +50,7 @@ Write ONLY a JSON object to `{RESULT_FILE}`:
 
 ```json
 {
-  "status": "registered|submitted|needs-input|failed|closed|captcha|session-expired",
+  "status": "registered|submitted|needs-input|failed",
   "fields": [],
   "message": "Brief note"
 }
