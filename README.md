@@ -167,7 +167,10 @@ This skill stores per-conference data in your OpenClaw workspace (`~/.openclaw/w
 
 The skill also reads `~/.openclaw/openclaw.json` to detect your workspace path.
 
-**No data is sent to external services** — all processing happens locally via your OpenClaw agent and browser. Luma and Google Sheets are accessed only through the browser (same as manual browsing).
+**What touches the network:**
+- **Luma and Google Sheets** are accessed through the browser (same as manual browsing)
+- **Your OpenClaw agent's LLM** receives event data and preferences for curation and form-filling — this goes to whatever model provider you've configured (e.g., OpenAI). No additional external services are contacted beyond your agent's LLM and the event source websites.
+- **All file operations are local** — results are written to your workspace, not uploaded anywhere.
 
 ## Design Principles
 
