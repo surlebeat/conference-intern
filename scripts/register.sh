@@ -41,6 +41,7 @@ STATUS_FILE="$CONF_DIR/registration-status.json"
 
 USER_NAME=$(config_get "$CONFIG" '.user_info.name')
 USER_EMAIL=$(config_get "$CONFIG" '.user_info.email')
+STRATEGY=$(config_get "$CONFIG" '.preferences.strategy // "aggressive"')
 
 if [ ! -f "$CURATED_FILE" ]; then
   log_error "No curated.md found. Run curate first: bash scripts/curate.sh $CONFERENCE_ID"
@@ -66,7 +67,7 @@ fi
 EVENTS_LIST=""
 while IFS=$'\t' read -r name url; do
   EVENTS_LIST+="${name}"$'\t'"${url}"$'\n'
-done < <(parse_registerable_events "$CURATED_FILE" "$EVENTS_FILE" "$PARSE_MODE")
+done < <(parse_registerable_events "$CURATED_FILE" "$EVENTS_FILE" "$PARSE_MODE" "$STRATEGY")
 
 if [ -z "$EVENTS_LIST" ]; then
   log_info "No events to register. All events already have terminal status."
