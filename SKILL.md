@@ -5,7 +5,7 @@ metadata:
   openclaw:
     emoji: "🎪"
     requires:
-      bins: ["jq", "python3", "curl"]
+      bins: ["jq", "python3", "curl", "sha256sum"]
       capabilities: ["browser"]
 ---
 

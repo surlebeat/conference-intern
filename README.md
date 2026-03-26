@@ -153,6 +153,7 @@ bash scripts/register.sh my-conference --delay 10
 - [`jq`](https://jqlang.github.io/jq/) for JSON processing
 - `python3` for event scoring and markdown generation
 - `curl` for URL validation
+- `sha256sum` for event ID generation (standard on Linux, use `shasum` on macOS)
 
 ## Data & Privacy
 
@@ -161,11 +162,13 @@ This skill stores per-conference data in your OpenClaw workspace (`~/.openclaw/w
 - **config.json** — your conference preferences (interests, strategy, source URLs)
 - **events.json** — discovered event data (names, dates, URLs, hosts)
 - **curated.md** — scored and tiered event schedule
-- **luma-session.json** — Luma browser session cookies (for authenticated registration)
+- **luma-session.json** — Luma browser session cookies (optional — see below)
 - **custom-answers.json** — your answers to custom registration fields (company, role, etc.)
 - **registration-status.json** — batch progress tracker
 
 The skill also reads `~/.openclaw/openclaw.json` to detect your workspace path.
+
+**Luma authentication is optional.** You can log into Luma in the OpenClaw browser for faster registration (name and email are pre-filled). But if you prefer not to persist a Luma session, the skill works without it — the agent will type your name and email from `config.json` each time. Session cookies (`luma-session.json`) are only created if you choose to log in and can be deleted at any time.
 
 **What touches the network:**
 - **Luma and Google Sheets** are accessed through the browser (same as manual browsing)
