@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Conference Intern — Register for Events (Batch Processing)
-# Usage: bash scripts/register.sh <conference-id> [--retry-pending] [--batch-size <n>] [--delay <seconds>]
+# Usage: bash scripts/register.sh <conference-id> [--retry-pending] [--batch-size <n>]
 #
 # Processes events in batches. Each run handles --batch-size events (default 10),
 # writes registration-status.json, and exits. The agent reads the status, asks the
@@ -24,12 +24,6 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       BATCH_SIZE="$2"; shift 2 ;;
-    --delay)
-      if [ -z "${2:-}" ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
-        log_error "--delay requires a positive integer (seconds)"
-        exit 1
-      fi
-      DELAY="$2"; shift 2 ;;
     -*) log_error "Unknown flag: $1"; exit 1 ;;
     *) CONFERENCE_ID="$1"; shift ;;
   esac
