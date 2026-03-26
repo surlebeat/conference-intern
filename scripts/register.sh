@@ -197,6 +197,9 @@ if [ "$REMAINING" -eq 0 ]; then
   DONE=true
 fi
 
+# Collect non-Luma events for manual registration
+MANUAL_REG=$(collect_non_luma_events "$EVENTS_FILE")
+
 jq -n \
   --argjson batch_size "$BATCH_SIZE" \
   --argjson processed "$PROCESSED" \
@@ -208,6 +211,7 @@ jq -n \
   --argjson new_fields "$NEW_FIELDS" \
   --argjson all_fields "$ALL_FIELDS" \
   --argjson done "$DONE" \
+  --argjson manual "$MANUAL_REG" \
   '{
     batch_size: $batch_size,
     processed_this_batch: $processed,
@@ -220,7 +224,8 @@ jq -n \
     },
     new_fields: $new_fields,
     all_needs_input_fields: $all_fields,
-    done: $done
+    done: $done,
+    manual_registration: $manual
   }' > "$STATUS_FILE"
 
 # --- Summary ---

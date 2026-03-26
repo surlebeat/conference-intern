@@ -449,3 +449,11 @@ $form_prompt"
   sleep 1
   openclaw browser close --target-id "$target_id" 2>/dev/null || true
 }
+
+# Collect events with non-Luma URLs from events.json.
+# Returns JSON array of {name, url} for manual registration.
+# Args: $1 = events.json path
+collect_non_luma_events() {
+  local events_file="$1"
+  jq '[.[] | select(.rsvp_url != null and .rsvp_url != "" and (.rsvp_url | (contains("luma.com") or contains("lu.ma")) | not)) | {name: .name, url: .rsvp_url}]' "$events_file" 2>/dev/null || echo "[]"
+}
