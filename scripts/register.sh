@@ -95,12 +95,12 @@ REGISTERED=0
 NEEDS_INPUT=0
 FAILED=0
 CLOSED=0
-NEEDS_INPUT_FIELDS=""
 BATCH_NUM=0
 
 # --- Temp file cleanup ---
 RESULT_FILE=$(mktemp)
-trap 'rm -f "$RESULT_FILE"' EXIT
+NEEDS_INPUT_FIELDS_FILE=$(mktemp)
+trap 'rm -f "$RESULT_FILE" "$NEEDS_INPUT_FIELDS_FILE"' EXIT
 
 # --- Batch loop ---
 while IFS=$'\t' read -r EVENT_NAME RSVP_URL; do
@@ -125,7 +125,8 @@ while IFS=$'\t' read -r EVENT_NAME RSVP_URL; do
 
   # Parse result
   STATUS=$(jq -r '.status // "failed"' "$RESULT_FILE" 2>/dev/null || echo "failed")
-  FIELDS=$(jq -r '.fields // [] | join(",")' "$RESULT_FILE" 2>/dev/null || echo "")
+  FIELDS_JSON=$(jq '.fields // []' "$RESULT_FILE" 2>/dev/null || echo "[]")
+  FIELDS_DISPLAY=$(echo "$FIELDS_JSON" | jq -r 'join(", ")' 2>/dev/null || echo "")
   MSG=$(jq -r '.message // ""' "$RESULT_FILE" 2>/dev/null || echo "")
 
   log_info "  Status: $STATUS${MSG:+ — $MSG}"
@@ -140,9 +141,10 @@ while IFS=$'\t' read -r EVENT_NAME RSVP_URL; do
       REGISTERED=$((REGISTERED + 1))
       ;;
     needs-input)
-      update_event_status "$CURATED_FILE" "$EVENT_NAME" "⏳ Needs input: [$FIELDS]"
+      update_event_status "$CURATED_FILE" "$EVENT_NAME" "⏳ Needs input: [$FIELDS_DISPLAY]"
       NEEDS_INPUT=$((NEEDS_INPUT + 1))
-      NEEDS_INPUT_FIELDS+="${FIELDS}"$'\n'
+      # Append each field as a separate line (no comma splitting)
+      echo "$FIELDS_JSON" | jq -r '.[]' 2>/dev/null >> "$NEEDS_INPUT_FIELDS_FILE"
       ;;
     closed)
       update_event_status "$CURATED_FILE" "$EVENT_NAME" "🚫 Closed"
@@ -179,8 +181,8 @@ REMAINING=$((TOTAL_COUNT - PROCESSED))
 # --- Collect new custom fields not yet in answers ---
 NEW_FIELDS="[]"
 ALL_FIELDS="[]"
-if [ -n "$NEEDS_INPUT_FIELDS" ]; then
-  ALL_FIELDS=$(echo "$NEEDS_INPUT_FIELDS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort -u | jq -R . | jq -s '.')
+if [ -s "$NEEDS_INPUT_FIELDS_FILE" ]; then
+  ALL_FIELDS=$(sort -u "$NEEDS_INPUT_FIELDS_FILE" | grep -v '^$' | jq -R . | jq -s '.')
   if [ -f "$ANSWERS_FILE" ]; then
     KNOWN_KEYS=$(jq -r 'keys[]' "$ANSWERS_FILE" 2>/dev/null)
     NEW_FIELDS=$(echo "$ALL_FIELDS" | jq --argjson known "$(echo "$KNOWN_KEYS" | jq -R . | jq -s '.')" '[.[] | select(. as $f | $known | index($f) | not)]')
