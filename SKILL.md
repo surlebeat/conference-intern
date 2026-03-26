@@ -5,10 +5,8 @@ metadata:
   openclaw:
     emoji: "🎪"
     requires:
-      bins: ["jq"]
+      bins: ["jq", "python3", "curl"]
       capabilities: ["browser"]
-    optional:
-      bins: ["gog"]
 ---
 
 # Conference Intern
