@@ -23,16 +23,23 @@ The curate prompt says "Non-Luma events should always show 🔗." The agent sees
 Replace text-based closed detection in `cli_register_event()` with button-based logic:
 
 ```
-1. Look for register/RSVP button (existing heuristic patterns)
-2. If button found → event is open, proceed to form filling
-3. If NO button → look for waitlist button ("Join waitlist", "Liste d'attente", etc.)
-4. If waitlist button found → click it, proceed (treat like registration)
-5. If NO button at all → check the registration section of the page for specific
-   closed phrases: "Cet événement affiche complet", "This event is sold out",
-   "Sold out", "Registration closed", "Complet" — but ONLY in the context of
-   event status text, not in descriptions or profile text
-6. If closed phrase found → status: "closed"
-7. If still unclear → status: "failed" (not "closed") so it gets retried
+1. Check "already registered" patterns (full-text OK — "You're registered" etc. are
+   specific enough to never false-positive from event descriptions)
+2. Check captcha elements (existing logic, already reliable)
+3. Look for register/RSVP button (existing heuristic patterns)
+4. If button found → event is open, proceed to form filling
+5. If NO button → look for waitlist button ("Join waitlist", "Liste d'attente", etc.)
+6. If waitlist button found → click it, proceed (treat like registration)
+7. If NO button at all → look for closed indicator text ONLY in the registration
+   section of the page (near where the button would be), not in descriptions:
+   - "Cet événement affiche complet"
+   - "This event is sold out"
+   - "Sold out"
+   - "Registration closed"
+   - "Inscriptions fermées"
+   Note: this list may need expansion for other languages.
+8. If closed indicator found → status: "closed"
+9. If still unclear → status: "failed" (not "closed") so it gets retried
 ```
 
 Key change: **never search the full page text for generic words.** Only check the registration/button area, and only after confirming there's no button to click.
@@ -44,28 +51,39 @@ Remove `closed_patterns` text matching entirely. The closed check becomes a fall
 `curate.sh` splits `events.json` into batches of 50 events:
 
 1. Read all events from `events.json`
-2. Split into chunks of 50
-3. For each chunk: call `openclaw agent --session-id "curate-..."` with the chunk + preferences + curate prompt
-4. Agent writes a partial curated output for that chunk
-5. Script merges all partial outputs into one `curated.md` with proper headers
+2. Compute summary stats: total event count, RSVP range (min/median/max), events per day
+3. Split into chunks of 50
+4. For each chunk: call `openclaw agent --session-id "curate-..."` with:
+   - The chunk of events (JSON array)
+   - User preferences (interests, avoid, blocked, strategy)
+   - Summary stats for cross-batch calibration
+   - Curate prompt
+5. **Agent outputs JSON** (not markdown) — an array of `{name, tier, reason}` for each event
+6. Script collects all JSON outputs and merges into one array
+7. Script generates `curated.md` from the merged JSON:
+   - Groups events by date, then by tier (Must Attend / Recommended / Optional)
+   - Adds event details (time, location, host) from events.json
+   - Adds `🔗` markers based on URL (see Fix 3)
+   - Adds blocked events section
 
-Each agent call gets 50 events max — well within context limits. With 207 events, that's 5 agent calls.
+Each agent call gets 50 events max — well within context limits. With 207 events, that's 5 agent calls. Batch size of 50 may need tuning if events have very long descriptions.
 
-The curate prompt is simplified: agent receives a subset of events and outputs tiered markdown for just that subset. The script handles merging and headers.
+**Why JSON output:** Much easier to merge than markdown. No duplicate headers, no interleaving problems. The script has full control over the final markdown format.
 
 ## Fix 3: Script handles 🔗 markers based on URL, not source
 
 Remove all `🔗` instructions from the curate prompt. The agent only tiers events — it never decides link markers.
 
-Post-processing in `curate.sh` after merging:
-1. For each event in curated.md, look up its `rsvp_url` in events.json
+Post-processing in `curate.sh` when generating markdown from merged JSON:
+1. For each event, look up its `rsvp_url` in events.json
 2. If URL contains `luma.com` or `lu.ma` → no marker (registration script handles it)
 3. If URL is external (anything else) → add `🔗 [Register manually](url)`
 4. If URL is null/empty → add `🔗 No registration link`
+5. On name lookup failure → default to `🔗 Register manually` (better to show a link than silently drop the event)
 
 ## Manual registration list
 
-`register.sh` collects non-Luma events during parsing and includes them in `registration-status.json`:
+`register.sh` collects non-Luma events and includes them in `registration-status.json`:
 
 ```json
 {
@@ -76,14 +94,16 @@ Post-processing in `curate.sh` after merging:
 }
 ```
 
+New function `collect_non_luma_events()` in `common.sh`: reads events.json, returns events where `rsvp_url` does NOT contain `luma.com` or `lu.ma`. Called by `register.sh` at the end to populate the manual list.
+
 SKILL.md tells the agent: after all registration batches are done, present the manual registration list to the user as a checklist with clickable URLs.
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `scripts/common.sh` | Rewrite closed detection in `cli_register_event()` — button-based logic, remove `closed_patterns` text matching |
-| `scripts/curate.sh` | Batch curation (50 per call) + post-process `🔗` based on URL, not source |
-| `scripts/register.sh` | Add `manual_registration` to status file |
-| `templates/curate-prompt.md` | Remove `🔗` instructions, simplify for batched event subsets |
-| `SKILL.md` | Add step for presenting manual registration list to user |
+| `scripts/common.sh` | Rewrite closed detection in `cli_register_event()` — button-based logic, remove `closed_patterns`. Add `collect_non_luma_events()`. |
+| `scripts/curate.sh` | Rewrite: batch curation (50 per call, JSON output), merge results, generate markdown with `🔗` based on URL |
+| `scripts/register.sh` | Add `manual_registration` to status file using `collect_non_luma_events()` |
+| `templates/curate-prompt.md` | Rewrite: remove `🔗` instructions, output JSON instead of markdown, accept summary stats for calibration |
+| `SKILL.md` | Add step for presenting manual registration list to user after all batches |
