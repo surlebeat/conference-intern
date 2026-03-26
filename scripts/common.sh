@@ -334,8 +334,7 @@ cli_register_event() {
 
   # Known patterns
   local registered_patterns='["You'\''re registered", "You'\''re going", "Vous êtes inscrit", "View your ticket", "Voir votre billet", "You'\''re on the waitlist", "Vous êtes sur la liste"]'
-  local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "request to join", "join waitlist", "request access", "demander"]'
-  local closed_patterns='["sold out", "full", "closed", "registration closed", "complet", "event is full", "capacity reached"]'
+  local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "request to join", "join waitlist", "request access", "demander", "liste d'\''attente"]'
   local captcha_patterns='["recaptcha", "hcaptcha"]'
 
   # Step 1: Open page
@@ -347,17 +346,15 @@ cli_register_event() {
   fi
   sleep 3
 
-  # Step 2: Check already registered / closed / captcha
+  # Step 2: Check already registered + captcha (full-text OK — these patterns are specific enough)
   local page_check
   page_check=$(openclaw browser evaluate --target-id "$target_id" --fn "() => {
     const body = document.body;
     const text = (body && body.innerText ? body.innerText : '').toLowerCase();
     const registered = $registered_patterns;
-    const closed = $closed_patterns;
     const captcha = $captcha_patterns;
     if (document.querySelector('iframe[src*=captcha], iframe[src*=recaptcha], iframe[src*=hcaptcha], [class*=captcha], [class*=recaptcha], [class*=hcaptcha]') || captcha.some(p => text.includes(p.toLowerCase()))) return {status: 'captcha'};
     if (registered.some(p => text.includes(p.toLowerCase()))) return {status: 'registered'};
-    if (closed.some(p => text.includes(p.toLowerCase()))) return {status: 'closed'};
     return {status: 'open'};
   }" 2>/dev/null)
 
@@ -369,17 +366,12 @@ cli_register_event() {
     openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
     return
   fi
-  if [ "$page_status" = "closed" ]; then
-    echo '{"status": "closed", "fields": [], "message": "Event full or registration closed"}' > "$result_file"
-    openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
-    return
-  fi
   if [ "$page_status" = "captcha" ]; then
     echo '{"status": "captcha", "fields": [], "message": "CAPTCHA detected"}' > "$result_file"
     return
   fi
 
-  # Step 3: Find and click Register button
+  # Step 3: Find and click Register/RSVP/Waitlist button
   local btn_result
   btn_result=$(openclaw browser evaluate --target-id "$target_id" --fn "() => {
     const patterns = $register_btn_patterns;
@@ -398,10 +390,40 @@ cli_register_event() {
   btn_found=$(echo "$btn_result" | jq -r '.found // false' 2>/dev/null)
 
   if [ "$btn_found" != "true" ]; then
+    # No button found — try agent fallback
     local agent_result
-    agent_result=$(timeout 60 openclaw agent --session-id "regbtn-$(date +%s)-$RANDOM" --message "Open the browser tab with target ID $target_id. Find and click the registration/RSVP button on this Luma event page. Just click it and reply with 'clicked' or 'not found'. Do not fill any forms." 2>&1 | tail -1)
+    agent_result=$(timeout 60 openclaw agent --session-id "regbtn-$(date +%s)-$RANDOM" --message "Open the browser tab with target ID $target_id. Find and click the registration/RSVP/waitlist button on this Luma event page. Just click it and reply with 'clicked' or 'not found'. Do not fill any forms." 2>&1 | tail -1)
     if [[ "$agent_result" != *"clicked"* ]] && [[ "$agent_result" != *"Clicked"* ]]; then
-      echo '{"status": "failed", "fields": [], "message": "Could not find register button"}' > "$result_file"
+      # No button even with agent help — check if event is closed
+      local closed_check
+      closed_check=$(openclaw browser evaluate --target-id "$target_id" --fn '() => {
+        const body = document.body;
+        if (!body) return {closed: false};
+        const text = body.innerText || "";
+        const closedPhrases = [
+          "cet événement affiche complet",
+          "this event is sold out",
+          "sold out",
+          "registration closed",
+          "inscriptions fermées",
+          "event is full",
+          "capacity reached"
+        ];
+        const lowerText = text.toLowerCase();
+        for (const phrase of closedPhrases) {
+          if (lowerText.includes(phrase)) return {closed: true, phrase: phrase};
+        }
+        return {closed: false};
+      }' 2>/dev/null)
+
+      local is_closed
+      is_closed=$(echo "$closed_check" | jq -r '.closed // false' 2>/dev/null)
+
+      if [ "$is_closed" = "true" ]; then
+        echo '{"status": "closed", "fields": [], "message": "Event is full or registration closed"}' > "$result_file"
+      else
+        echo '{"status": "failed", "fields": [], "message": "Could not find register button"}' > "$result_file"
+      fi
       openclaw browser navigate --target-id "$target_id" "about:blank" 2>/dev/null || true; sleep 1; openclaw browser close --target-id "$target_id" 2>/dev/null || true
       return
     fi
