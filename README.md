@@ -151,7 +151,23 @@ bash scripts/register.sh my-conference --delay 10
 
 - [OpenClaw](https://openclaw.com) with browser capability
 - [`jq`](https://jqlang.github.io/jq/) for JSON processing
-- `python3` (for CSV parsing fallback)
+- `python3` for event scoring and markdown generation
+- `curl` for URL validation
+
+## Data & Privacy
+
+This skill stores per-conference data in your OpenClaw workspace (`~/.openclaw/workspace/conferences/<id>/`):
+
+- **config.json** — your conference preferences (interests, strategy, source URLs)
+- **events.json** — discovered event data (names, dates, URLs, hosts)
+- **curated.md** — scored and tiered event schedule
+- **luma-session.json** — Luma browser session cookies (for authenticated registration)
+- **custom-answers.json** — your answers to custom registration fields (company, role, etc.)
+- **registration-status.json** — batch progress tracker
+
+The skill also reads `~/.openclaw/openclaw.json` to detect your workspace path.
+
+**No data is sent to external services** — all processing happens locally via your OpenClaw agent and browser. Luma and Google Sheets are accessed only through the browser (same as manual browsing).
 
 ## Design Principles
 
