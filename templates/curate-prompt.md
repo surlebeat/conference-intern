@@ -1,83 +1,62 @@
-# Conference Intern — Curate Events
+# Conference Intern — Curate Events (Batch)
 
-You are curating events for a crypto conference attendee. Read their preferences and the discovered events, then score, rank, and tier each event.
+You are curating a BATCH of events for a crypto conference attendee. Score, rank, and tier each event based on the provided preferences.
 
-## Inputs
+## Context (provided by script)
 
-- `config.json` — user preferences (interests, avoid topics, blocked organizers, strategy)
-- `events.json` — all discovered events
+- **Strategy:** {STRATEGY}
+- **Interests:** {INTERESTS}
+- **Avoid:** {AVOID}
+- **Blocked organizers:** {BLOCKED}
+- **Summary stats:** {STATS} (use for calibration — you only see a subset of all events)
+- **Result file:** {RESULT_FILE}
 
 ## Scoring Criteria
 
 For each event, assess:
 
-1. **Topic relevance** — how well does the event match the user's interest topics?
+1. **Topic relevance** — how well does the event match the interest topics?
    - Strong match: event name/description directly relates to an interest topic
    - Weak match: tangentially related
    - No match: unrelated
 
 2. **Quality signals**
    - Known/reputable host or speakers
-   - High RSVP count relative to other events (indicates community interest)
+   - High RSVP count (use the summary stats to calibrate — the stats show the range across ALL events, not just this batch)
    - Clear description and professional presentation
 
 3. **Blocklist check**
-   - If the host matches `blocked_organizers` → exclude
-   - If the event topic matches `avoid` list → exclude
+   - If the host matches blocked organizers → tier: "blocked"
+   - If the event topic matches avoid list → tier: "blocked"
 
-## Strategy Application
+## Strategy
 
-**Aggressive:**
-- Include most events that aren't blocked/avoided
-- Must-attend: strong topic match + quality signals
-- Recommended: any topic match or good quality signals
-- Optional: no strong match but not blocked
+**Aggressive:** Include most events that aren't blocked/avoided.
+- must_attend: strong topic match + quality signals
+- recommended: any topic match or good quality signals
+- optional: no strong match but not blocked
 
-**Conservative:**
-- Only include events with strong topic relevance
-- Must-attend: strong topic match + strong quality signals
-- Recommended: strong topic match
-- Skip everything else
+**Conservative:** Only include events with strong topic relevance.
+- must_attend: strong topic match + strong quality signals
+- recommended: strong topic match
+- Everything else → blocked
 
 ## Output Format
 
-Write `curated.md` with this structure:
+Write a JSON array to `{RESULT_FILE}`. Each element:
 
-```
-# {Conference Name} — Side Events
-
-Last updated: {YYYY-MM-DD HH:MM} UTC
-Strategy: {aggressive|conservative} | Events: {total} found, {recommended} recommended
-
-## {Date} ({Day of week})
-
-### Must Attend
-- **{Event Name}** — {time} @ {location}
-  Host: {host} | RSVPs: {count}
-  {status}
-
-### Recommended
-- **{Event Name}** — {time} @ {location}
-  Host: {host} | RSVPs: {count}
-  {status}
-
-### Optional
-- **{Event Name}** — {time} @ {location}
-  Host: {host}
-  {status}
-
-## Blocked / Filtered Out
-- ~~{Event Name}~~ — {reason}
+```json
+[
+  {
+    "name": "Event Name (exact match from input)",
+    "tier": "must_attend|recommended|optional|blocked",
+    "reason": "One sentence why"
+  }
+]
 ```
 
-Status markers:
-- (empty) — not yet registered
-- ✅ Registered
-- ⏳ Needs input: [{field1}, {field2}]
-- 🔗 [Register manually]({url})
-- ❌ Failed
-- 🚫 Closed
-- 🔒 Session expired
-
-Group events by date, sorted by time within each day.
-Non-Luma events should always show 🔗 with their registration link.
+**IMPORTANT:**
+- You MUST include EVERY event from the input — do not skip any
+- Use the exact event name from the input (do not rename or truncate)
+- Write ONLY the JSON array to the result file, nothing else
+- Do NOT write markdown — the script generates markdown from your JSON
