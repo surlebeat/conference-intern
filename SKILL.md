@@ -92,7 +92,10 @@ Registration processes events in batches of 10. **You MUST follow this loop unti
 4. If `new_fields` is not empty: ask the user for answers, write them to `conferences/<id>/custom-answers.json`
 5. If `done` is false: **run `register.sh` again immediately** for the next batch — do NOT wait for the user to ask
 6. When `done` is true and there are `⏳ Needs input` events: run `register.sh --retry-pending`
-7. Report final results to the user
+7. Read `registration-status.json` — if `manual_registration` is not empty, present the list to the user:
+   "These events need manual registration (not on Luma):"
+   - [Event Name](url) for each entry
+8. Report final results to the user
 
 **CRITICAL:** After each batch completes, you MUST either run the next batch or tell the user why you stopped. Never silently stop between batches.
 
