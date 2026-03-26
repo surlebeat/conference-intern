@@ -84,15 +84,17 @@ When the scripts invoke you for browser tasks, use your browser capability to in
 
 ### Registration (batch flow)
 
-Registration processes events in batches of 10. After each batch run:
-1. Run `bash scripts/register.sh <conference-id>`
-2. Read `conferences/<id>/registration-status.json`
-3. If `new_fields` is not empty: ask the user for answers, write them to `conferences/<id>/custom-answers.json`
-4. If `done` is false: run `register.sh` again for the next batch
-5. When `done` is true and there are `⏳ Needs input` events: run `register.sh --retry-pending` to retry them with the accumulated answers
-6. Report final results to the user
+Registration processes events in batches of 10. **You MUST follow this loop until all events are processed:**
 
-The script exits after each batch — do NOT try to run multiple batches in one command.
+1. Run `bash scripts/register.sh <conference-id>`
+2. **IMMEDIATELY tell the user** the batch results (registered/failed/needs-input/remaining counts)
+3. Read `conferences/<id>/registration-status.json`
+4. If `new_fields` is not empty: ask the user for answers, write them to `conferences/<id>/custom-answers.json`
+5. If `done` is false: **run `register.sh` again immediately** for the next batch — do NOT wait for the user to ask
+6. When `done` is true and there are `⏳ Needs input` events: run `register.sh --retry-pending`
+7. Report final results to the user
+
+**CRITICAL:** After each batch completes, you MUST either run the next batch or tell the user why you stopped. Never silently stop between batches.
 
 When invoked by the script for individual events:
 - Fill only **mandatory/required** fields on RSVP forms. Leave optional fields blank.
