@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Conference Intern — Register for Events (Batch Processing)
-# Usage: bash scripts/register.sh <conference-id> [--retry-pending] [--batch-size <n>]
+# Usage: bash scripts/register.sh <conference-id> [--retry-pending] [--batch-size <n>] [--tier <tiers>]
 #
 # Processes events in batches. Each run handles --batch-size events (default 10),
 # writes registration-status.json, and exits. The agent reads the status, asks the
@@ -14,6 +14,7 @@ CONFERENCE_ID=""
 RETRY_PENDING=false
 BATCH_SIZE=10
 DELAY=15
+TIER_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +25,12 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       BATCH_SIZE="$2"; shift 2 ;;
+    --tier)
+      if [ -z "${2:-}" ]; then
+        log_error "--tier requires a value (e.g., must_attend, must_attend,recommended)"
+        exit 1
+      fi
+      TIER_OVERRIDE="$2"; shift 2 ;;
     -*) log_error "Unknown flag: $1"; exit 1 ;;
     *) CONFERENCE_ID="$1"; shift ;;
   esac
@@ -53,8 +60,17 @@ if [ ! -f "$EVENTS_FILE" ]; then
   exit 1
 fi
 
-log_info "Registering for events: $(config_get "$CONFIG" '.name')"
-log_info "Batch size: $BATCH_SIZE | Delay: ${DELAY}s"
+# --- Determine effective strategy for tier filtering ---
+if [ -n "$TIER_OVERRIDE" ]; then
+  # --tier flag overrides strategy-based filtering
+  EFFECTIVE_STRATEGY="custom:$TIER_OVERRIDE"
+  log_info "Registering for events: $(config_get "$CONFIG" '.name')"
+  log_info "Batch size: $BATCH_SIZE | Delay: ${DELAY}s | Tiers: $TIER_OVERRIDE"
+else
+  EFFECTIVE_STRATEGY="$STRATEGY"
+  log_info "Registering for events: $(config_get "$CONFIG" '.name')"
+  log_info "Batch size: $BATCH_SIZE | Delay: ${DELAY}s | Strategy: $STRATEGY"
+fi
 
 # --- Determine parse mode ---
 PARSE_MODE="all"
@@ -67,7 +83,7 @@ fi
 EVENTS_LIST=""
 while IFS=$'\t' read -r name url; do
   EVENTS_LIST+="${name}"$'\t'"${url}"$'\n'
-done < <(parse_registerable_events "$CURATED_FILE" "$EVENTS_FILE" "$PARSE_MODE" "$STRATEGY")
+done < <(parse_registerable_events "$CURATED_FILE" "$EVENTS_FILE" "$PARSE_MODE" "$EFFECTIVE_STRATEGY")
 
 if [ -z "$EVENTS_LIST" ]; then
   log_info "No events to register. All events already have terminal status."
