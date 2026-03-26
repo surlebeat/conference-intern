@@ -334,7 +334,7 @@ cli_register_event() {
 
   # Known patterns
   local registered_patterns='["You'\''re registered", "You'\''re going", "Vous êtes inscrit", "View your ticket", "Voir votre billet", "You'\''re on the waitlist", "Vous êtes sur la liste"]'
-  local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "request to join", "join waitlist", "request access", "demander", "liste d'\''attente"]'
+  local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "inscription", "rejoindre", "request to join", "join waitlist", "request access", "demander", "liste d'\''attente"]'
   local captcha_patterns='["recaptcha", "hcaptcha"]'
 
   # Step 1: Open page
