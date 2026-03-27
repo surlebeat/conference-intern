@@ -381,7 +381,7 @@ cli_register_event() {
   local knowledge_file="${4:-}"
 
   # Known patterns
-  local registered_patterns='["You'\''re registered", "You'\''re going", "Vous êtes inscrit", "View your ticket", "Voir votre billet", "You'\''re on the waitlist", "Vous êtes sur la liste"]'
+  local registered_patterns='["You'\''re registered", "You'\''re going", "Vous êtes inscrit", "Vous êtes déjà inscrit", "View your ticket", "Voir votre billet", "You'\''re on the waitlist", "Vous êtes sur la liste", "Pending approval", "already registered", "Votre inscription est en attente", "Your registration is pending"]'
   local register_btn_patterns='["register", "rsvp", "join", "participer", "s'\''inscrire", "request to join", "join waitlist", "request access", "demander", "liste d'\''attente"]'
   local captcha_patterns='["recaptcha", "hcaptcha"]'
 
