@@ -31,6 +31,7 @@ A Luma event registration page is already open in the browser. The Register butt
    - Name → use `{USER_NAME}`
    - Email → use `{USER_EMAIL}`
    - Fields matching answers in `{CUSTOM_ANSWERS}` → use the matching answer (fuzzy match by meaning, not exact label)
+   - **Mandatory checkboxes** (terms of service, photo consent, code of conduct, data processing, etc.) → always check them. These are required to submit the form and are NOT custom fields.
    - **Promotional/marketing dropdowns** (newsletter signup, "interested in our services?", audit offers, etc.) → always select "No" or the negative/opt-out option
    - Required fields you can't fill and aren't promotional → these are real custom fields, report as needs-input
 
