@@ -387,7 +387,7 @@ cli_register_event() {
 
   # Step 1: Open page
   local target_id
-  target_id=$(openclaw browser open "$rsvp_url" --json 2>/dev/null | jq -r '.targetId // empty')
+  target_id=$(openclaw browser open "$rsvp_url" 2>/dev/null | grep '^id:' | awk '{print $2}')
   if [ -z "$target_id" ]; then
     echo '{"status": "failed", "fields": [], "message": "Failed to open page"}' > "$result_file"
     return

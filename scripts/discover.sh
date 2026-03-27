@@ -46,7 +46,7 @@ if [ -n "$LUMA_URLS" ] && [ "$LUMA_URLS" != "null" ]; then
     log_info "[$LUMA_COUNT] Luma page: $luma_url"
 
     # Open page in browser
-    TARGET_ID=$(openclaw browser open "$luma_url" --json 2>/dev/null | jq -r '.targetId // empty')
+    TARGET_ID=$(openclaw browser open "$luma_url" 2>/dev/null | grep '^id:' | awk '{print $2}')
     if [ -z "$TARGET_ID" ]; then
       log_warn "  Failed to open page — skipping"
       continue
